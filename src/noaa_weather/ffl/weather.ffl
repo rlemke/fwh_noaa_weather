@@ -1,0 +1,761 @@
+// NOAA GHCN-Daily Weather Station Analysis Pipeline
+// Catalog-first approach using GHCN-Daily (AWS S3): ghcnd-inventory.txt tells us
+// exactly what data exists BEFORE downloading. One CSV per station contains ALL years
+// (no per-year loops). Standard CSV format, 100K+ stations, global coverage.
+//
+// Data source: https://noaa-ghcn-pds.s3.amazonaws.com/
+//   ghcnd-stations.txt  -- station catalog (ID, lat, lon, elev, name)
+//   ghcnd-inventory.txt -- per-station element/year ranges
+//   csv/by_station/{ID}.csv -- actual data (ID,DATE,ELEMENT,DATA_VALUE,M_FLAG,Q_FLAG,S_FLAG)
+
+// ---------------------------------------------------------------------------
+// Schemas
+// ---------------------------------------------------------------------------
+
+namespace weather.types {
+    schema StationInfo {
+        station_id: String,
+        name: String,
+        lat: Double,
+        lon: Double,
+        elevation: Double,
+        country: String,
+        state: String,
+        elements: Json,
+        first_year: Int,
+        last_year: Int
+    }
+
+    schema YearlyClimate {
+        state: String,
+        year: Int,
+        station_count: Int,
+        temp_mean: Double,
+        temp_min_avg: Double,
+        temp_max_avg: Double,
+        precip_annual: Double,
+        hot_days: Int,
+        frost_days: Int,
+        precip_days: Int
+    }
+
+    schema ClimateTrend {
+        state: String,
+        start_year: Int,
+        end_year: Int,
+        warming_rate_per_decade: Double,
+        precip_change_pct: Double,
+        decades: Json
+    }
+
+    schema GeoContext {
+        display_name: String,
+        city: String,
+        state: String,
+        country: String,
+        county: String
+    }
+
+    /** Per-station, per-(year, month) rollup produced by
+      * AnalyzeStationMonthly. Nullable numeric fields encode "no data
+      * for the month" so downstream consumers can distinguish absence
+      * from a genuine zero. */
+    schema MonthlyClimate {
+        station_id: String,
+        state: String,
+        year: Int,
+        month: Int,
+        temp_mean: Double,
+        temp_min_avg: Double,
+        temp_max_avg: Double,
+        precip_total: Double,
+        hot_days: Int,
+        frost_days: Int,
+        precip_days: Int,
+        obs_days: Int
+    }
+
+    /** Filesystem paths of the on-disk bundle produced by
+      * GenerateClimateReport. Lives under
+      * ``$AFL_CACHE_ROOT/noaa-weather/climate-report/<country>/<region>/``. */
+    schema ClimateReportBundle {
+        output_dir: String,
+        report_json: String,
+        report_md: String,
+        report_html: String,
+        chart_paths: Json,
+        station_count: Int,
+        narrative: String
+    }
+
+    /** A single NDBC buoy / coastal station from activestations.xml.
+      *
+      * ``type`` is one of ``buoy``, ``cman``, ``dart``, ``nerrs``,
+      * ``oil``, ``other``. Sensor-family booleans say which payloads
+      * that station reports — ``met`` is the closest GHCN analogue. */
+    schema BuoyStation {
+        station_id: String,
+        name: String,
+        type: String,
+        owner: String,
+        lat: Double,
+        lon: Double,
+        met: Boolean,
+        currents: Boolean,
+        waterquality: Boolean,
+        dart: Boolean
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Mixins and implicits
+// ---------------------------------------------------------------------------
+
+namespace weather.mixins {
+    facet RetryPolicy(max_retries: Int = 3, backoff_ms: Int = 2000) => (max_retries: Int, backoff_ms: Int)
+    facet RateLimit(requests_per_sec: Int = 1, burst: Int = 1) => (requests_per_sec: Int, burst: Int)
+
+    implicit default_retry = RetryPolicy()
+    implicit default_rate = RateLimit()
+}
+
+// ---------------------------------------------------------------------------
+// Catalog — discovery with inventory verification
+// ---------------------------------------------------------------------------
+
+namespace weather.Catalog {
+    use weather.types
+
+    /** Discover GHCN-Daily stations by country, state, and/or Geofabrik region.
+      * Reads ghcnd-stations.txt and ghcnd-inventory.txt to verify data availability
+      * before returning stations. Filters by min_years of coverage and required elements.
+      *
+      * ``region`` accepts any Geofabrik path — ``europe/germany``,
+      * ``north-america/us/california``. When set, the region's bounding box
+      * becomes the spatial filter and overrides ``country`` unless ``country``
+      * is passed explicitly (non-default). */
+    event facet DiscoverStations(
+        country: String = "US",
+        state: String = "",
+        region: String = "",
+        max_stations: Int = 10,
+        min_years: Int = 20,
+        required_elements: Json = ["TMAX","TMIN","PRCP"]
+    ) => (stations: Json, station_count: Int) with RetryPolicy()
+}
+
+// ---------------------------------------------------------------------------
+// Ingest — single CSV download per station (all years in one file)
+// ---------------------------------------------------------------------------
+
+namespace weather.Ingest {
+    use weather.types
+
+    /** Download the GHCN-Daily CSV for a station from S3.
+      * One file per station contains ALL years — no per-year loop needed.
+      * Filters records to [start_year, end_year] range during download. */
+    event facet FetchStationData(station_id: String, start_year: Int = 1944, end_year: Int = 2026) => (record_count: Int, years_with_data: Int, station_id: String) with RetryPolicy()
+}
+
+// ---------------------------------------------------------------------------
+// Analysis — climate analysis from GHCN-Daily records
+// ---------------------------------------------------------------------------
+
+namespace weather.Analysis {
+    use weather.types
+
+    /** Analyze a station across its full date range in one handler call.
+      * Reads the downloaded CSV, computes daily/yearly aggregates (TMAX, TMIN, PRCP),
+      * and produces per-year climate summaries. */
+    event facet AnalyzeStationClimate(station_id: String, station_name: String, lat: Double, lon: Double, start_year: Int, end_year: Int, state: String = "") => (yearly_summaries: Json, years_analyzed: Int, station_id: String)
+
+    /** Compute region-level climate trend from station analyses.
+      * Aggregates all station reports for a country+state, runs linear regression
+      * on temperature and precipitation, generates narrative summary.
+      * @param station_count Dependency signal — pass discovery.station_count to ensure
+      *   this step waits for all station analyses to complete before aggregating. */
+    event facet ComputeRegionTrend(country: String, state: String, start_year: Int, end_year: Int, station_count: Int = 0) => (trend: Json, narrative: String)
+
+    /** Produce per-(year, month) rollups for a single station.
+      * Reads the station's cached GHCN CSV, computes monthly climate
+      * aggregates (mean/min/max temp, total precip, hot/frost/precip days).
+      * Output shape matches the MonthlyClimate schema, returned as JSON
+      * so FFL callers can forage without per-month schema overhead. */
+    event facet AnalyzeStationMonthly(
+        station_id: String,
+        station_name: String = "",
+        state: String = "",
+        start_year: Int = 1950,
+        end_year: Int = 2026
+    ) => (monthly_rows: Json, months_analyzed: Int, station_id: String)
+}
+
+// ---------------------------------------------------------------------------
+// Geocode — reverse geocode station coordinates
+// ---------------------------------------------------------------------------
+
+namespace weather.Geocode {
+    use weather.types
+
+    /** Reverse geocode station coordinates via OSM Nominatim. */
+    event facet ReverseGeocode(lat: Double, lon: Double) => (geo: GeoContext) with RateLimit()
+}
+
+// ---------------------------------------------------------------------------
+// Marine — NOAA National Data Buoy Center catalog + stdmet + map
+// ---------------------------------------------------------------------------
+//
+// Parallels the land-based catalog / ingest / analysis chain but for
+// ocean buoys + coastal observing stations. Outputs land under:
+//   cache/noaa-weather/ndbc-catalog/   (XML + normalized JSON + map)
+//   cache/noaa-weather/ndbc-stdmet/    (per-station-per-year .txt.gz)
+//   cache/noaa-weather/buoy-summaries/ (yearly summaries)
+
+namespace weather.Marine {
+    use weather.types
+
+    /** Download the NDBC active-stations catalog (XML + normalized JSON).
+      *
+      * Writes two sidecar-backed artifacts so downstream tools can
+      * consume the JSON without re-parsing XML. Cached by default;
+      * pass ``force = true`` to refresh. */
+    event facet DownloadNdbcCatalog(
+        force: Boolean = false,
+        use_mock: Boolean = false
+    ) => (
+        xml_path: String,
+        json_path: String,
+        station_count: Int,
+        was_cached: Boolean,
+        used_mock: Boolean
+    ) with RetryPolicy()
+
+    /** Filter the cached NDBC catalog to a candidate buoy set.
+      *
+      * Mirrors ``discover-buoys`` — accepts Geofabrik ``region`` or
+      * explicit ``bbox``, ``types`` (``buoy|cman|dart|nerrs|oil``),
+      * ``require_fields`` (any of ``met|currents|waterquality|dart``).
+      * Returns the filtered station list as JSON for ``foreach``. */
+    event facet DiscoverBuoys(
+        region: String = "",
+        bbox: String = "",
+        types: Json = [],
+        require_fields: Json = [],
+        max_stations: Int = 0,
+        use_mock: Boolean = false
+    ) => (stations: Json, station_count: Int)
+
+    /** Download every stdmet year in ``[start_year, end_year]`` for one
+      * station. Iterates internally so FFL callers don't need a range
+      * primitive. Individual-year failures (e.g. 404s on pre-instal
+      * years) are counted but don't abort. */
+    event facet FetchBuoyData(
+        station_id: String,
+        start_year: Int = 2015,
+        end_year: Int = 2024,
+        force: Boolean = false,
+        use_mock: Boolean = false
+    ) => (
+        station_id: String,
+        requested: Int,
+        fetched: Int,
+        failed: Int
+    ) with RetryPolicy()
+
+    /** Summarize every cached stdmet year for one station into a yearly
+      * buoy-climate JSON. No-op for stations without cached stdmet. */
+    event facet SummarizeBuoy(
+        station_id: String,
+        start_year: Int = 0,
+        end_year: Int = 0
+    ) => (
+        station_id: String,
+        summary_path: String,
+        years_analyzed: Int
+    )
+
+    /** Render the MapLibre buoy points map from the cached catalog
+      * (and any per-station summaries). Uses CARTO Voyager basemap;
+      * colour-codes circles by station type. */
+    event facet BuildBuoysMap(
+        dependency_signal: Int = 0
+    ) => (html_path: String, station_count: Int)
+}
+
+// ---------------------------------------------------------------------------
+// Report — regional climate-report bundle (JSON + Markdown + HTML + SVGs)
+// ---------------------------------------------------------------------------
+//
+// Wraps the `_lib.climate_report.generate_climate_report` core that the
+// `climate-report.sh` CLI also calls. Output lives at
+// $AFL_CACHE_ROOT/noaa-weather/climate-report/<country>/<region>/ and
+// follows standard climate-data conventions: WMO 30-year normals, Ed
+// Hawkins warming stripes, Walter-Lieth climograph, year×month heatmap,
+// anomaly bars, OLS trend line.
+
+namespace weather.Report {
+    use weather.types
+
+    /** Generate a regional climate report bundle: JSON aggregates,
+      * Markdown narrative, self-contained HTML, and five SVG charts
+      * (climograph, annual_trend, warming_stripes, heatmap, anomaly_bars).
+      *
+      * Region selection accepts ``region`` (Geofabrik path) OR
+      * ``country``+``state`` — matches the DiscoverStations vocabulary.
+      * ``baseline_start`` / ``baseline_end`` define the climate-normals
+      * window (default 1991–2020, the current WMO standard).
+      *
+      * Returns filesystem paths to every file in the bundle. */
+    event facet GenerateClimateReport(
+        country: String = "US",
+        state: String = "",
+        region: String = "",
+        start_year: Int = 1950,
+        end_year: Int = 2026,
+        baseline_start: Int = 1991,
+        baseline_end: Int = 2020,
+        min_years: Int = 20,
+        max_stations: Int = 0,
+        required_elements: Json = ["TMAX","TMIN","PRCP"],
+        override_bulk_guard: Boolean = false
+    ) => (
+        output_dir: String,
+        report_json: String,
+        report_md: String,
+        report_html: String,
+        chart_paths: Json,
+        station_count: Int,
+        narrative: String
+    )
+
+    /** List every Geofabrik region under a path prefix.
+      *
+      * Used by GenerateRegionGroupReport's ``andThen foreach`` to fan
+      * out a single "report on every province" workflow. Mirrors the
+      * ``climate-report.sh --all-under PREFIX --include-parents --list``
+      * CLI mode.
+      *
+      * ``prefix = ""`` returns every region in the cached Geofabrik
+      * index — usually a footgun (tens of thousands of regions).
+      * ``include_parents = false`` (default) returns leaves only;
+      * ``true`` also returns the prefix + every intermediate level. */
+    event facet ListRegionsUnder(
+        prefix: String,
+        include_parents: Boolean = false
+    ) => (regions: Json, region_count: Int)
+}
+
+// ---------------------------------------------------------------------------
+// Workflows — single station
+// ---------------------------------------------------------------------------
+
+namespace weather.workflows {
+    use weather.types
+
+    /** Analyze a single GHCN-Daily station: fetch CSV, analyze climate, reverse geocode. */
+    workflow AnalyzeStation(station_id: String, station_name: String, lat: Double, lon: Double, start_year: Int = 1944, end_year: Int = 2026) => (status: String, detail: String) andThen {
+        fetch = FetchStationData(station_id = $.station_id, start_year = $.start_year, end_year = $.end_year) catch {
+            yield AnalyzeStation(status = "download_failed", detail = "Download failed for " ++ $.station_id)
+        }
+        climate = AnalyzeStationClimate(station_id = $.station_id, station_name = $.station_name, lat = $.lat, lon = $.lon, start_year = $.start_year, end_year = $.end_year)
+        geo = ReverseGeocode(lat = $.lat, lon = $.lon)
+        yield AnalyzeStation(status = "completed", detail = "Analyzed " ++ fetch.station_id ++ ": " ++ climate.years_analyzed ++ " years")
+    }
+
+    /** Analyze climate trends for a state: discover stations, analyze each, compute trend.
+      * DiscoverStations -> foreach station -> (FetchStationData, AnalyzeStationClimate, ReverseGeocode) -> ComputeRegionTrend. */
+    workflow AnalyzeStateTrends(country: String = "US", state: String = "NY", max_stations: Int = 5, start_year: Int = 1944, end_year: Int = 2026) => (status: String, narrative: String) andThen {
+        discovery = DiscoverStations(country = $.country, state = $.state, max_stations = $.max_stations) andThen foreach station in discovery.stations {
+            fetch = FetchStationData(station_id = $.station.station_id, start_year = $.start_year, end_year = $.end_year) catch {
+                yield AnalyzeStateTrends(status = "partial_failure", narrative = "")
+            }
+            climate = AnalyzeStationClimate(station_id = $.station.station_id, station_name = $.station.name, lat = $.station.lat, lon = $.station.lon, start_year = $.start_year, end_year = $.end_year, state = $.state) catch {
+                yield AnalyzeStateTrends(status = "partial_failure", narrative = "")
+            }
+            geo = ReverseGeocode(lat = $.station.lat, lon = $.station.lon)
+        }
+        trend = ComputeRegionTrend(country = $.country, state = $.state, start_year = $.start_year, end_year = $.end_year, station_count = discovery.station_count)
+        yield AnalyzeStateTrends(status = "completed", narrative = trend.narrative)
+    }
+
+    /** Analyze climate trends for all 50 US states in parallel. */
+    workflow AnalyzeAllStates(states: [String] = ["AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY"], max_stations: Int = 5, start_year: Int = 1944, end_year: Int = 2026) => (status: String = "completed") andThen foreach state in $.states {
+        analysis = AnalyzeStateTrends(country = "US", state = $.state, max_stations = $.max_stations, start_year = $.start_year, end_year = $.end_year) catch {
+            yield AnalyzeAllStates(status = "partial_failure")
+        }
+    }
+
+    /** End-to-end regional climate report: discover → fetch → monthly rollups
+      * → render bundle (JSON + Markdown + HTML + 5 SVGs).
+      *
+      * This workflow maps 1:1 onto the `climate-report.sh` CLI — the
+      * handler for GenerateClimateReport re-runs discovery + download
+      * internally so the report is always self-contained.
+      * Use `DiscoverStations` + `AnalyzeStationMonthly` ahead of time
+      * if you want to warm the cache first; the report handler will
+      * read the cached CSVs rather than re-downloading. */
+    workflow GenerateRegionReport(
+        country: String = "US",
+        state: String = "",
+        start_year: Int = 1950,
+        end_year: Int = 2026,
+        baseline_start: Int = 1991,
+        baseline_end: Int = 2020,
+        min_years: Int = 20,
+        max_stations: Int = 0
+    ) => (status: String, output_dir: String, narrative: String) andThen {
+        report = GenerateClimateReport(
+            country = $.country,
+            state = $.state,
+            start_year = $.start_year,
+            end_year = $.end_year,
+            baseline_start = $.baseline_start,
+            baseline_end = $.baseline_end,
+            min_years = $.min_years,
+            max_stations = $.max_stations
+        ) catch {
+            yield GenerateRegionReport(status = "failed", output_dir = "", narrative = "")
+        }
+        yield GenerateRegionReport(
+            status = "completed",
+            output_dir = report.output_dir,
+            narrative = report.narrative
+        )
+    }
+
+    /** Same as GenerateRegionReport but filters stations by a Geofabrik
+      * region path (``europe/germany``, ``north-america/us/california``).
+      * The region's bounding box is the spatial filter. */
+    workflow GenerateGeofabrikRegionReport(
+        region: String,
+        start_year: Int = 1950,
+        end_year: Int = 2026,
+        baseline_start: Int = 1991,
+        baseline_end: Int = 2020,
+        min_years: Int = 20,
+        max_stations: Int = 0
+    ) => (status: String, output_dir: String, narrative: String) andThen {
+        report = GenerateClimateReport(
+            region = $.region,
+            country = "",
+            start_year = $.start_year,
+            end_year = $.end_year,
+            baseline_start = $.baseline_start,
+            baseline_end = $.baseline_end,
+            min_years = $.min_years,
+            max_stations = $.max_stations
+        ) catch {
+            yield GenerateGeofabrikRegionReport(status = "failed", output_dir = "", narrative = "")
+        }
+        yield GenerateGeofabrikRegionReport(
+            status = "completed",
+            output_dir = report.output_dir,
+            narrative = report.narrative
+        )
+    }
+
+    /** End-to-end NDBC run: catalog → discover → fetch + summarize
+      * each buoy → render the points map.
+      *
+      * Equivalent to the 5-command marine recipe in the tools README,
+      * expressed as one workflow. Discovery fans out ``foreach`` so
+      * the fetch + summarize steps run in parallel across stations
+      * (concurrency governed by the runner's pool). Individual
+      * station failures are caught and absorbed so one bad buoy
+      * doesn't poison the batch. */
+    workflow AnalyzeBuoyRegion(
+        region: String = "",
+        types: Json = ["buoy"],
+        require_fields: Json = ["met"],
+        max_stations: Int = 10,
+        start_year: Int = 2015,
+        end_year: Int = 2024,
+        use_mock: Boolean = false
+    ) => (
+        status: String,
+        station_count: Int,
+        html_path: String
+    ) andThen {
+        catalog = DownloadNdbcCatalog(use_mock = $.use_mock) catch {
+            yield AnalyzeBuoyRegion(
+                status = "catalog_failed",
+                station_count = 0,
+                html_path = ""
+            )
+        }
+        discovery = DiscoverBuoys(
+            region = $.region,
+            types = $.types,
+            require_fields = $.require_fields,
+            max_stations = $.max_stations,
+            use_mock = $.use_mock
+        ) andThen foreach station in discovery.stations {
+            fetch = FetchBuoyData(
+                station_id = $.station.station_id,
+                start_year = $.start_year,
+                end_year = $.end_year,
+                use_mock = $.use_mock
+            ) catch {
+                yield AnalyzeBuoyRegion(
+                    status = "partial",
+                    station_count = 0,
+                    html_path = ""
+                )
+            }
+            summary = SummarizeBuoy(
+                station_id = $.station.station_id,
+                start_year = $.start_year,
+                end_year = $.end_year
+            ) catch {
+                yield AnalyzeBuoyRegion(
+                    status = "partial",
+                    station_count = 0,
+                    html_path = ""
+                )
+            }
+        }
+        map = BuildBuoysMap(
+            dependency_signal = discovery.station_count
+        ) catch {
+            yield AnalyzeBuoyRegion(
+                status = "map_failed",
+                station_count = discovery.station_count,
+                html_path = ""
+            )
+        }
+        yield AnalyzeBuoyRegion(
+            status = "completed",
+            station_count = discovery.station_count,
+            html_path = map.html_path
+        )
+    }
+
+    /** Report on every Geofabrik region under a prefix — e.g. Canada
+      * plus every province, Europe plus every country, or any sub-tree
+      * of the Geofabrik hierarchy.
+      *
+      * Equivalent to::
+      *
+      *     ./climate-report.sh --all-under <prefix> [--include-parents]
+      *
+      * Fans out via ``ListRegionsUnder`` + ``andThen foreach`` so every
+      * report runs as its own step with its own logs, retries, and
+      * output bundle. Individual failures are caught and absorbed so
+      * one bad region doesn't poison the batch.
+      *
+      * ``include_parents = true`` also runs the prefix region itself
+      * (for "Canada as a whole plus each province") — leaves only by
+      * default. */
+    workflow GenerateRegionGroupReport(
+        prefix: String,
+        include_parents: Boolean = false,
+        start_year: Int = 1950,
+        end_year: Int = 2026,
+        baseline_start: Int = 1991,
+        baseline_end: Int = 2020,
+        min_years: Int = 20,
+        max_stations: Int = 0
+    ) => (status: String, region_count: Int) andThen {
+        list = ListRegionsUnder(
+            prefix = $.prefix,
+            include_parents = $.include_parents
+        ) andThen foreach region in list.regions {
+            report = GenerateClimateReport(
+                country = "",
+                region = $.region,
+                start_year = $.start_year,
+                end_year = $.end_year,
+                baseline_start = $.baseline_start,
+                baseline_end = $.baseline_end,
+                min_years = $.min_years,
+                max_stations = $.max_stations
+            ) catch {
+                // Region without matching stations / over the guard
+                // shouldn't stop the batch. The per-region logs still
+                // surface the reason.
+                yield GenerateRegionGroupReport(
+                    status = "partial",
+                    region_count = list.region_count
+                )
+            }
+        }
+        yield GenerateRegionGroupReport(
+            status = "completed",
+            region_count = list.region_count
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// International Analysis Workflows
+// ---------------------------------------------------------------------------
+
+namespace weather.workflows {
+    use weather.types
+
+    /** Analyze climate trends for all 13 Canadian provinces/territories. */
+    workflow AnalyzeCanada(provinces: [String] = ["AB","BC","MB","NB","NL","NS","NT","NU","ON","PE","QC","SK","YT"], max_stations: Int = 5, start_year: Int = 1944, end_year: Int = 2026) => (status: String = "completed") andThen foreach province in $.provinces {
+        analysis = AnalyzeStateTrends(country = "CA", state = $.province, max_stations = $.max_stations, start_year = $.start_year, end_year = $.end_year) catch {
+            yield AnalyzeCanada(status = "partial_failure")
+        }
+    }
+
+    /** Analyze climate trends for Russia. */
+    workflow AnalyzeRussia(max_stations: Int = 5, start_year: Int = 1944, end_year: Int = 2026) => (status: String = "completed") andThen {
+        analysis = AnalyzeStateTrends(country = "RS", state = "RS", max_stations = $.max_stations, start_year = $.start_year, end_year = $.end_year)
+        yield AnalyzeRussia(status = "completed")
+    }
+
+    /** Analyze climate trends for India. */
+    workflow AnalyzeIndia(max_stations: Int = 5, start_year: Int = 1944, end_year: Int = 2026) => (status: String = "completed") andThen {
+        analysis = AnalyzeStateTrends(country = "IN", state = "IN", max_stations = $.max_stations, start_year = $.start_year, end_year = $.end_year)
+        yield AnalyzeIndia(status = "completed")
+    }
+
+    /** Analyze climate trends for Mexico. */
+    workflow AnalyzeMexico(max_stations: Int = 5, start_year: Int = 1944, end_year: Int = 2026) => (status: String = "completed") andThen {
+        analysis = AnalyzeStateTrends(country = "MX", state = "MX", max_stations = $.max_stations, start_year = $.start_year, end_year = $.end_year)
+        yield AnalyzeMexico(status = "completed")
+    }
+
+    /** Analyze climate trends for Antarctica research stations. */
+    workflow AnalyzeAntarctica(max_stations: Int = 5, start_year: Int = 1944, end_year: Int = 2026) => (status: String = "completed") andThen {
+        analysis = AnalyzeStateTrends(country = "AY", state = "AY", max_stations = $.max_stations, start_year = $.start_year, end_year = $.end_year)
+        yield AnalyzeAntarctica(status = "completed")
+    }
+
+    /** Analyze climate trends for 10 South American countries. */
+    workflow AnalyzeSouthAmerica(countries: [String] = ["BR","AR","CI","CO","PE","VE","EC","BO","PY","UY"], max_stations: Int = 5, start_year: Int = 1944, end_year: Int = 2026) => (status: String = "completed") andThen foreach country in $.countries {
+        analysis = AnalyzeStateTrends(country = $.country, state = $.country, max_stations = $.max_stations, start_year = $.start_year, end_year = $.end_year) catch {
+            yield AnalyzeSouthAmerica(status = "partial_failure")
+        }
+    }
+
+    /** Analyze climate trends for 18 European countries. */
+    workflow AnalyzeEurope(countries: [String] = ["UK","GM","FR","SP","IT","NO","SW","FI","PL","EZ","NL","BE","DA","SZ","PO","EI","GR","IC"], max_stations: Int = 5, start_year: Int = 1944, end_year: Int = 2026) => (status: String = "completed") andThen foreach country in $.countries {
+        analysis = AnalyzeStateTrends(country = $.country, state = $.country, max_stations = $.max_stations, start_year = $.start_year, end_year = $.end_year) catch {
+            yield AnalyzeEurope(status = "partial_failure")
+        }
+    }
+
+    /** Analyze climate trends for 13 African countries. */
+    workflow AnalyzeAfrica(countries: [String] = ["SF","NI","KE","EG","MO","AG","LY","IV","GH","SN","TZ","UG","ET"], max_stations: Int = 5, start_year: Int = 1944, end_year: Int = 2026) => (status: String = "completed") andThen foreach country in $.countries {
+        analysis = AnalyzeStateTrends(country = $.country, state = $.country, max_stations = $.max_stations, start_year = $.start_year, end_year = $.end_year) catch {
+            yield AnalyzeAfrica(status = "partial_failure")
+        }
+    }
+
+    /** Analyze climate trends for 7 Asian countries. */
+    workflow AnalyzeAsia(countries: [String] = ["CH","JA","KS","TH","VM","BM","ID"], max_stations: Int = 5, start_year: Int = 1944, end_year: Int = 2026) => (status: String = "completed") andThen foreach country in $.countries {
+        analysis = AnalyzeStateTrends(country = $.country, state = $.country, max_stations = $.max_stations, start_year = $.start_year, end_year = $.end_year) catch {
+            yield AnalyzeAsia(status = "partial_failure")
+        }
+    }
+
+    /** Analyze climate trends for 3 Arctic territories. */
+    workflow AnalyzeArctic(countries: [String] = ["GL","SV","IC"], max_stations: Int = 3, start_year: Int = 1944, end_year: Int = 2026) => (status: String = "completed") andThen foreach country in $.countries {
+        analysis = AnalyzeStateTrends(country = $.country, state = $.country, max_stations = $.max_stations, start_year = $.start_year, end_year = $.end_year) catch {
+            yield AnalyzeArctic(status = "partial_failure")
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Cache Warmup — pre-download GHCN-Daily CSVs without running analysis
+// ---------------------------------------------------------------------------
+
+namespace weather.Cache {
+    use weather.types
+
+    /** Cache GHCN-Daily data for one state: discover stations, download each station's CSV.
+      * One FetchStationData per station (all years in one CSV). */
+    workflow CacheStateData(country: String = "US", state: String, max_stations: Int = 5, start_year: Int = 1944, end_year: Int = 2026) => (status: String = "completed") andThen {
+        discovery = DiscoverStations(country = $.country, state = $.state, max_stations = $.max_stations) andThen foreach station in discovery.stations {
+            cache = FetchStationData(station_id = $.station.station_id, start_year = $.start_year, end_year = $.end_year) catch {
+                yield CacheStateData(status = "partial")
+            }
+        }
+        yield CacheStateData(status = "completed")
+    }
+
+    /** Cache GHCN-Daily data for all 50 US states. */
+    workflow CacheAllUSData(states: [String] = ["AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY"], max_stations: Int = 5, start_year: Int = 1944, end_year: Int = 2026) => (status: String = "completed") andThen foreach state in $.states {
+        cache = CacheStateData(country = "US", state = $.state, max_stations = $.max_stations, start_year = $.start_year, end_year = $.end_year) catch {
+            yield CacheAllUSData(status = "partial")
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// International Cache Warmup Workflows
+// ---------------------------------------------------------------------------
+
+namespace weather.Cache {
+    use weather.types
+
+    /** Cache GHCN-Daily data for all 13 Canadian provinces/territories. */
+    workflow CacheCanadaData(provinces: [String] = ["AB","BC","MB","NB","NL","NS","NT","NU","ON","PE","QC","SK","YT"], max_stations: Int = 5, start_year: Int = 1944, end_year: Int = 2026) => (status: String = "completed") andThen foreach province in $.provinces {
+        cache = CacheStateData(country = "CA", state = $.province, max_stations = $.max_stations, start_year = $.start_year, end_year = $.end_year) catch {
+            yield CacheCanadaData(status = "partial")
+        }
+    }
+
+    /** Cache GHCN-Daily data for Russia. */
+    workflow CacheRussiaData(max_stations: Int = 5, start_year: Int = 1944, end_year: Int = 2026) => (status: String) andThen {
+        cache = CacheStateData(country = "RS", state = "", max_stations = $.max_stations, start_year = $.start_year, end_year = $.end_year)
+        yield CacheRussiaData(status = "completed")
+    }
+
+    /** Cache GHCN-Daily data for India. */
+    workflow CacheIndiaData(max_stations: Int = 5, start_year: Int = 1944, end_year: Int = 2026) => (status: String) andThen {
+        cache = CacheStateData(country = "IN", state = "", max_stations = $.max_stations, start_year = $.start_year, end_year = $.end_year)
+        yield CacheIndiaData(status = "completed")
+    }
+
+    /** Cache GHCN-Daily data for Mexico. */
+    workflow CacheMexicoData(max_stations: Int = 5, start_year: Int = 1944, end_year: Int = 2026) => (status: String) andThen {
+        cache = CacheStateData(country = "MX", state = "", max_stations = $.max_stations, start_year = $.start_year, end_year = $.end_year)
+        yield CacheMexicoData(status = "completed")
+    }
+
+    /** Cache GHCN-Daily data for Antarctica research stations. */
+    workflow CacheAntarcticaData(max_stations: Int = 5, start_year: Int = 1944, end_year: Int = 2026) => (status: String) andThen {
+        cache = CacheStateData(country = "AY", state = "", max_stations = $.max_stations, start_year = $.start_year, end_year = $.end_year)
+        yield CacheAntarcticaData(status = "completed")
+    }
+
+    /** Cache GHCN-Daily data for 10 South American countries. */
+    workflow CacheSouthAmericaData(countries: [String] = ["BR","AR","CI","CO","PE","VE","EC","BO","PY","UY"], max_stations: Int = 5, start_year: Int = 1944, end_year: Int = 2026) => (status: String = "completed") andThen foreach country in $.countries {
+        cache = CacheStateData(country = $.country, state = "", max_stations = $.max_stations, start_year = $.start_year, end_year = $.end_year) catch {
+            yield CacheSouthAmericaData(status = "partial")
+        }
+    }
+
+    /** Cache GHCN-Daily data for 18 European countries. */
+    workflow CacheEuropeData(countries: [String] = ["UK","GM","FR","SP","IT","NO","SW","FI","PL","EZ","NL","BE","DA","SZ","PO","EI","GR","IC"], max_stations: Int = 5, start_year: Int = 1944, end_year: Int = 2026) => (status: String = "completed") andThen foreach country in $.countries {
+        cache = CacheStateData(country = $.country, state = "", max_stations = $.max_stations, start_year = $.start_year, end_year = $.end_year) catch {
+            yield CacheEuropeData(status = "partial")
+        }
+    }
+
+    /** Cache GHCN-Daily data for 13 African countries. */
+    workflow CacheAfricaData(countries: [String] = ["SF","NI","KE","EG","MO","AG","LY","IV","GH","SN","TZ","UG","ET"], max_stations: Int = 5, start_year: Int = 1944, end_year: Int = 2026) => (status: String = "completed") andThen foreach country in $.countries {
+        cache = CacheStateData(country = $.country, state = "", max_stations = $.max_stations, start_year = $.start_year, end_year = $.end_year) catch {
+            yield CacheAfricaData(status = "partial")
+        }
+    }
+
+    /** Cache GHCN-Daily data for 7 Asian countries. */
+    workflow CacheAsiaData(countries: [String] = ["CH","JA","KS","TH","VM","BM","ID"], max_stations: Int = 5, start_year: Int = 1944, end_year: Int = 2026) => (status: String = "completed") andThen foreach country in $.countries {
+        cache = CacheStateData(country = $.country, state = "", max_stations = $.max_stations, start_year = $.start_year, end_year = $.end_year) catch {
+            yield CacheAsiaData(status = "partial")
+        }
+    }
+
+    /** Cache GHCN-Daily data for 3 Arctic territories. */
+    workflow CacheArcticData(countries: [String] = ["GL","SV","IC"], max_stations: Int = 3, start_year: Int = 1944, end_year: Int = 2026) => (status: String = "completed") andThen foreach country in $.countries {
+        cache = CacheStateData(country = $.country, state = "", max_stations = $.max_stations, start_year = $.start_year, end_year = $.end_year) catch {
+            yield CacheArcticData(status = "partial")
+        }
+    }
+}

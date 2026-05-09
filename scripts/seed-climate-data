@@ -1,0 +1,182 @@
+#!/usr/bin/env bash
+# Seed climate_state_years and climate_trends collections for all 50 US states.
+#
+# Generates 81 years (1944–2024) of deterministic climate data using the same
+# hash functions as the NOAA weather handlers, then computes trend lines and
+# narratives per state.
+#
+# Inserts 4,050 climate_state_years docs and 50 climate_trends docs.
+#
+# Usage:
+#   scripts/seed-climate-data
+#
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
+EXAMPLE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+
+# Load .env (AFL_MONGODB_URL, AFL_EXAMPLES_DATABASE, etc.)
+source "$REPO_ROOT/scripts/_env.sh"
+
+PYTHON="${REPO_ROOT}/.venv/bin/python3"
+[[ -x "$PYTHON" ]] || PYTHON=python3
+
+env PYTHONPATH="$REPO_ROOT:$EXAMPLE_DIR" "$PYTHON" - <<'PYEOF'
+import math
+import os
+import sys
+
+from noaa_weather.handlers.shared.weather_utils import (
+    ClimateStore,
+    _hash_float,
+    _hash_int,
+    get_weather_db,
+    simple_linear_regression,
+)
+
+# -- State parameters: (base_temp_C, seasonal_amplitude, annual_precip_mm, warming_rate_C_per_decade) --
+STATE_PARAMS = {
+    "AL": (17.1, 10, 1400, 0.12), "AK": (-3.0, 18, 400, 0.25),
+    "AZ": (20.3, 12, 330, 0.18), "AR": (15.8, 12, 1300, 0.11),
+    "CA": (15.5, 8, 560, 0.15), "CO": (7.3, 14, 400, 0.14),
+    "CT": (10.0, 14, 1200, 0.16), "DE": (12.9, 13, 1100, 0.17),
+    "FL": (21.5, 6, 1350, 0.13), "GA": (17.5, 10, 1250, 0.12),
+    "HI": (23.0, 3, 1700, 0.08), "ID": (6.9, 16, 500, 0.15),
+    "IL": (11.0, 16, 1000, 0.13), "IN": (11.4, 15, 1050, 0.14),
+    "IA": (9.2, 17, 900, 0.14), "KS": (12.4, 16, 750, 0.13),
+    "KY": (13.1, 13, 1200, 0.12), "LA": (19.1, 8, 1550, 0.11),
+    "ME": (5.0, 16, 1100, 0.18), "MD": (12.7, 13, 1100, 0.17),
+    "MA": (9.0, 14, 1200, 0.16), "MI": (7.4, 16, 850, 0.15),
+    "MN": (5.1, 19, 750, 0.17), "MS": (17.4, 9, 1450, 0.11),
+    "MO": (12.5, 15, 1050, 0.12), "MT": (5.2, 18, 380, 0.16),
+    "NE": (9.8, 17, 650, 0.14), "NV": (10.3, 14, 240, 0.19),
+    "NH": (6.1, 16, 1150, 0.17), "NJ": (11.5, 14, 1200, 0.17),
+    "NM": (11.9, 13, 350, 0.18), "NY": (8.8, 15, 1100, 0.16),
+    "NC": (15.0, 11, 1250, 0.13), "ND": (4.7, 20, 500, 0.17),
+    "OH": (10.4, 15, 1000, 0.14), "OK": (15.3, 14, 900, 0.12),
+    "OR": (9.8, 10, 1100, 0.13), "PA": (10.1, 14, 1050, 0.15),
+    "RI": (10.1, 14, 1250, 0.16), "SC": (16.9, 10, 1250, 0.12),
+    "SD": (7.3, 19, 550, 0.15), "TN": (14.4, 12, 1350, 0.12),
+    "TX": (18.2, 11, 800, 0.13), "UT": (9.2, 15, 400, 0.17),
+    "VT": (5.8, 16, 1050, 0.18), "VA": (13.0, 12, 1100, 0.14),
+    "WA": (9.4, 10, 1000, 0.14), "WV": (10.8, 13, 1100, 0.13),
+    "WI": (6.2, 18, 850, 0.16), "WY": (5.0, 17, 350, 0.16),
+}
+
+START_YEAR = 1944
+END_YEAR = 2024
+
+db = get_weather_db()
+climate = ClimateStore(db)
+
+total_years = 0
+
+print(f"Seeding climate data for {len(STATE_PARAMS)} states, {START_YEAR}-{END_YEAR}...")
+
+for state, (base_temp, amplitude, base_precip, warming) in sorted(STATE_PARAMS.items()):
+    yearly_docs = []
+
+    for year in range(START_YEAR, END_YEAR + 1):
+        seed = f"{state}:{year}"
+        decades_elapsed = (year - START_YEAR) / 10.0
+
+        # Temperature with warming trend + random variation
+        temp_mean = base_temp + warming * decades_elapsed + _hash_float(seed + ":temp", -1.5, 1.5)
+        temp_min_avg = temp_mean - amplitude / 2 + _hash_float(seed + ":tmin", -1.0, 1.0)
+        temp_max_avg = temp_mean + amplitude / 2 + _hash_float(seed + ":tmax", -1.0, 1.0)
+
+        # Precipitation with slight trend + variation
+        precip_factor = 1.0 + _hash_float(seed + ":precip", -0.15, 0.15)
+        precip_annual = round(base_precip * precip_factor, 1)
+
+        # Extreme days
+        hot_threshold = 35.0
+        frost_threshold = 0.0
+        # More hot days for warmer states and later years
+        hot_base = max(0, (temp_max_avg - hot_threshold) * 4)
+        hot_days = max(0, int(hot_base + _hash_int(seed + ":hot", -5, 10)))
+        # Fewer frost days for warmer states
+        frost_base = max(0, (frost_threshold - temp_min_avg) * 8)
+        frost_days = max(0, int(frost_base + _hash_int(seed + ":frost", -10, 10)))
+        # Precipitation days
+        precip_days = _hash_int(seed + ":pdays", 70, 140)
+
+        station_count = _hash_int(seed + ":stations", 2, 8)
+
+        doc = {
+            "state": state,
+            "year": year,
+            "station_count": station_count,
+            "temp_mean": round(temp_mean, 2),
+            "temp_min_avg": round(temp_min_avg, 2),
+            "temp_max_avg": round(temp_max_avg, 2),
+            "precip_annual": precip_annual,
+            "hot_days": hot_days,
+            "frost_days": frost_days,
+            "precip_days": precip_days,
+        }
+        climate.upsert_state_year(doc)
+        yearly_docs.append(doc)
+        total_years += 1
+
+    # Compute trend
+    years_f = [float(d["year"]) for d in yearly_docs]
+    temps_f = [float(d["temp_mean"]) for d in yearly_docs]
+    slope, _ = simple_linear_regression(years_f, temps_f)
+    warming_rate = round(slope * 10, 4)
+
+    first_precip = yearly_docs[0]["precip_annual"]
+    last_precip = yearly_docs[-1]["precip_annual"]
+    precip_change_pct = round((last_precip - first_precip) / first_precip * 100, 2) if first_precip > 0 else 0.0
+
+    # Decade grouping
+    buckets = {}
+    for d in yearly_docs:
+        dec = f"{(d['year'] // 10) * 10}s"
+        buckets.setdefault(dec, []).append(d)
+    decades = {}
+    for dec, items in sorted(buckets.items()):
+        ts = [i["temp_mean"] for i in items]
+        ps = [i["precip_annual"] for i in items]
+        decades[dec] = {
+            "avg_temp": round(sum(ts) / len(ts), 2),
+            "avg_precip": round(sum(ps) / len(ps), 1),
+            "years_with_data": len(items),
+        }
+
+    # Narrative
+    decade_names = sorted(decades.keys())
+    parts = [f"Climate analysis for {state} from {START_YEAR} to {END_YEAR}."]
+    if warming_rate > 0:
+        parts.append(f"Temperatures have risen at {warming_rate}\u00b0C per decade.")
+    elif warming_rate < 0:
+        parts.append(f"Temperatures have cooled at {abs(warming_rate)}\u00b0C per decade.")
+    else:
+        parts.append("Temperatures have remained stable.")
+    if precip_change_pct > 0:
+        parts.append(f"Annual precipitation has increased by {precip_change_pct}%.")
+    elif precip_change_pct < 0:
+        parts.append(f"Annual precipitation has decreased by {abs(precip_change_pct)}%.")
+    if len(decade_names) >= 2:
+        first_dec, last_dec = decade_names[0], decade_names[-1]
+        parts.append(
+            f"Average temperature shifted from {decades[first_dec]['avg_temp']}\u00b0C "
+            f"in the {first_dec} to {decades[last_dec]['avg_temp']}\u00b0C in the {last_dec}."
+        )
+    narrative = " ".join(parts)
+
+    trend_doc = {
+        "state": state,
+        "start_year": START_YEAR,
+        "end_year": END_YEAR,
+        "warming_rate_per_decade": warming_rate,
+        "precip_change_pct": precip_change_pct,
+        "decades": decades,
+        "narrative": narrative,
+    }
+    climate.upsert_trend(trend_doc)
+
+    sys.stdout.write(f"  {state}: {warming_rate:+.4f}\u00b0C/decade, precip {precip_change_pct:+.2f}%\n")
+
+print(f"\nDone. {total_years} climate_state_years + {len(STATE_PARAMS)} climate_trends docs inserted.")
+PYEOF
