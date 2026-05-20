@@ -33,7 +33,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _lib import geofabrik_regions, ndbc_download, ndbc_parse  # noqa: E402
+from _noaa_tools import geofabrik_regions, ndbc_download, ndbc_parse  # noqa: E402
 
 
 BULK_FETCH_THRESHOLD = 500  # same rationale as GHCN's guard

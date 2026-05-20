@@ -1,7 +1,7 @@
 """Climate analysis — yearly summaries and trend regression (pure, no I/O).
 
 Operates on the daily-record shape produced by
-:func:`_lib.ghcn_parse.parse_ghcn_csv`. Emits yearly summary dicts that
+:func:`_noaa_tools.ghcn_parse.parse_ghcn_csv`. Emits yearly summary dicts that
 downstream code (CLI tools, handlers) can persist to files, MongoDB,
 or pass further up the pipeline.
 """

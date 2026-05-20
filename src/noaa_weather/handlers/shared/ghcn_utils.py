@@ -1,6 +1,6 @@
 """Handler-side compatibility shim for the noaa-weather pipeline.
 
-The real implementation lives in ``src/noaa_weather/tools/_lib/``.
+The real implementation lives in ``src/noaa_weather/tools/_noaa_tools/``.
 It is shared verbatim by:
 
 - the ``download-ghcn-catalog`` / ``fetch-station-csv`` / ``summarize-
@@ -16,11 +16,11 @@ one cache.
 
 This module exposes the legacy ``download_station_catalog`` /
 ``download_inventory`` / ``download_station_csv`` / ``reverse_geocode_
-nominatim`` names by wrapping the new ``_lib`` APIs. Parser and
+nominatim`` names by wrapping the new ``_noaa_tools`` APIs. Parser and
 analysis functions are re-exported without change.
 
 The MongoDB helpers (``get_weather_db``, ``WeatherReportStore``,
-``ClimateStore``) stay here — ``_lib`` must not import ``pymongo`` so
+``ClimateStore``) stay here — ``_noaa_tools`` must not import ``pymongo`` so
 the tools can run standalone, without a Mongo cluster.
 """
 
@@ -32,11 +32,11 @@ import os
 from typing import Any
 
 # Import the real implementation via the fully-qualified package path so we
-# don't compete with other example packages for the bare ``_lib`` name on
-# sys.modules (osm-geocoder ships its own ``_lib`` under
-# ``osm_geocoder/tools/_lib/``; loading both entry points in the same
+# don't compete with other example packages for the bare ``_noaa_tools`` name on
+# sys.modules (osm-geocoder ships its own ``_noaa_tools`` under
+# ``osm_geocoder/tools/_noaa_tools/``; loading both entry points in the same
 # Python process would otherwise hand whichever package imported first).
-from noaa_weather.tools._lib import (  # noqa: F401
+from noaa_weather.tools._noaa_tools import (  # noqa: F401
     climate_analysis,
     climate_report,
     geocode_nominatim,
@@ -48,12 +48,12 @@ from noaa_weather.tools._lib import (  # noqa: F401
     ndbc_map,
     ndbc_parse,
 )
-from noaa_weather.tools._lib.climate_analysis import (  # noqa: F401
+from noaa_weather.tools._noaa_tools.climate_analysis import (  # noqa: F401
     aggregate_region_trend,
     compute_yearly_summaries,
     simple_linear_regression,
 )
-from noaa_weather.tools._lib.ghcn_parse import (  # noqa: F401
+from noaa_weather.tools._noaa_tools.ghcn_parse import (  # noqa: F401
     US_STATE_BOUNDS,
     filter_stations,
     parse_ghcn_csv,
@@ -104,7 +104,7 @@ def reverse_geocode_nominatim(
 
 
 # ---------------------------------------------------------------------------
-# MongoDB helpers — stay in the handler layer so ``_lib`` remains
+# MongoDB helpers — stay in the handler layer so ``_noaa_tools`` remains
 # database-free (the CLI tools must be runnable without a Mongo cluster).
 # ---------------------------------------------------------------------------
 
@@ -305,7 +305,7 @@ __all__ = [
     "ndbc_download",
     "ndbc_map",
     "ndbc_parse",
-    # Mongo (handler-only — not part of the ``_lib`` surface).
+    # Mongo (handler-only — not part of the ``_noaa_tools`` surface).
     "ClimateStore",
     "WeatherReportStore",
     "get_weather_db",

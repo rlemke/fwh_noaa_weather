@@ -23,7 +23,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _lib import geocode_nominatim  # noqa: E402
+from _noaa_tools import geocode_nominatim  # noqa: E402
 
 
 def _parse_pairs(args_nums: list[str]) -> list[tuple[float, float]]:

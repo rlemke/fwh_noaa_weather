@@ -32,8 +32,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _lib import climate_analysis, sidecar  # noqa: E402
-from _lib.storage import LocalStorage  # noqa: E402
+from _noaa_tools import climate_analysis, sidecar  # noqa: E402
+from _noaa_tools.storage import LocalStorage  # noqa: E402
 
 NAMESPACE = "noaa-weather"
 SUMMARY_CACHE_TYPE = "climate-summary"

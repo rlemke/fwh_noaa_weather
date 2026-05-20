@@ -286,7 +286,7 @@ namespace weather.Marine {
 // Report — regional climate-report bundle (JSON + Markdown + HTML + SVGs)
 // ---------------------------------------------------------------------------
 //
-// Wraps the `_lib.climate_report.generate_climate_report` core that the
+// Wraps the `_noaa_tools.climate_report.generate_climate_report` core that the
 // `climate-report.sh` CLI also calls. Output lives at
 // $AFL_CACHE_ROOT/noaa-weather/climate-report/<country>/<region>/ and
 // follows standard climate-data conventions: WMO 30-year normals, Ed

@@ -14,7 +14,7 @@ fwh_noaa_weather/
 ├── src/noaa_weather/__init__.py    # exports `example: ExamplePackage`
 ├── src/noaa_weather/handlers/      # event-facet implementations (6 subpackages)
 ├── src/noaa_weather/ffl/           # top-level FFL workflows
-├── src/noaa_weather/tools/         # CLI utilities + _lib/ (the real implementation)
+├── src/noaa_weather/tools/         # CLI utilities + _noaa_tools/ (the real implementation)
 ├── tests/                          # repo-level integration tests
 └── agent-spec/                     # cross-cutting design specs
 ```
@@ -32,7 +32,7 @@ scripts/start-runner --example noaa-weather -- --log-format text
 # Run as a standalone agent (skip the registry runner path):
 PYTHONPATH=src python agent.py
 
-# CLIs (call the same _lib/ as the handlers — see Tools pattern below):
+# CLIs (call the same _noaa_tools/ as the handlers — see Tools pattern below):
 src/noaa_weather/tools/discover-stations.sh --country US --max 50
 src/noaa_weather/tools/fetch-station-csv.sh USC00010008
 src/noaa_weather/tools/compute-region-trend.sh --state CA --start 1950 --end 2024
@@ -48,26 +48,26 @@ pytest tests/ src/noaa_weather/handlers/ -v
 
 Every operation has two surfaces — a CLI under `src/noaa_weather/tools/`
 and an FFL handler under `src/noaa_weather/handlers/<domain>/` — and both
-call into the **same** implementation in `src/noaa_weather/tools/_lib/`.
+call into the **same** implementation in `src/noaa_weather/tools/_noaa_tools/`.
 This is the Facetwork canonical pattern (see
 `agent-spec/tools-pattern.agent-spec.yaml`).
 
 ```
                        ┌────────────────────────┐
    CLI tool ───────────┤                        │
-                       │   tools/_lib/X.py      │ ← single source of truth
+                       │   tools/_noaa_tools/X.py      │ ← single source of truth
    FFL handler ────────┤   (download / parse /  │
    (via shared shim)   │    analysis / mocks)   │
                        └────────────────────────┘
 ```
 
 The shim lives at `src/noaa_weather/handlers/shared/ghcn_utils.py`. It
-adds `tools/` to `sys.path` and re-exports `_lib` symbols, plus wraps
-the new `_lib` APIs in legacy-shaped helpers (`download_station_catalog`,
+adds `tools/` to `sys.path` and re-exports `_noaa_tools` symbols, plus wraps
+the new `_noaa_tools` APIs in legacy-shaped helpers (`download_station_catalog`,
 `download_station_csv`, `reverse_geocode_nominatim`) so handlers don't
 need to track refactors of the underlying library.
 
-The `_lib` modules **must not** depend on `pymongo` or other handler-only
+The `_noaa_tools` modules **must not** depend on `pymongo` or other handler-only
 infrastructure — that way the CLIs run standalone, without a Mongo
 cluster. MongoDB-backed storage (`WeatherReportStore`, `ClimateStore`)
 lives in the shim.
@@ -115,7 +115,7 @@ all six are wired into `register_all_registry_handlers` in
 4. Drop the FFL declaration into `src/noaa_weather/ffl/` (or a domain-specific
    `handlers/<domain>/ffl/` for nested workflows).
 5. If the handler does anything non-trivial, factor that work into a
-   `tools/_lib/<name>.py` module, add a CLI wrapper under `tools/`, and
+   `tools/_noaa_tools/<name>.py` module, add a CLI wrapper under `tools/`, and
    re-export from `handlers/shared/ghcn_utils.py`.
 6. Re-run `scripts/seed-examples --include noaa-weather` so the new flow
    shows up in the dashboard.
@@ -126,7 +126,7 @@ all six are wired into `register_all_registry_handlers` in
 - For every download: cache + sidecar + max-age check, with deterministic mock fallback.
 - For every retry: max count and backoff. No infinite loops.
 - For every error handler: never silently return empty defaults. Fail explicitly or re-raise.
-- Keep `_lib/` free of `pymongo` / handler-only deps so CLIs stay runnable standalone.
+- Keep `_noaa_tools/` free of `pymongo` / handler-only deps so CLIs stay runnable standalone.
 
 ## Domain research before implementation
 
@@ -134,5 +134,5 @@ For NOAA / climate work, apply established practices:
 - GHCN station IDs are 11 chars (`USCMM######`); inventory is fixed-width text.
 - ISD-Lite is fixed-width with `-9999` for missing values; temperatures, pressures, wind speeds are scaled ×10.
 - NDBC standard meteorological files are space-delimited with a 2-line header.
-- Nominatim has a strict 1 req/sec rate limit — the `_lib.geocode_nominatim` helper enforces this.
+- Nominatim has a strict 1 req/sec rate limit — the `_noaa_tools.geocode_nominatim` helper enforces this.
 - Reverse-geocoding lat/lon → place: cache aggressively (results never change for a given lat/lon).

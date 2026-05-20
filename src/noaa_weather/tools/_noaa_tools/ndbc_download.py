@@ -5,10 +5,10 @@ All downloads land under ``cache/noaa-weather/`` with per-entry
 
 - ``cache/noaa-weather/ndbc-catalog/activestations.xml`` (raw upstream)
 - ``cache/noaa-weather/ndbc-catalog/stations.json`` (normalised to the
-  shape :func:`_lib.ndbc_parse.parse_activestations_xml` returns)
+  shape :func:`_noaa_tools.ndbc_parse.parse_activestations_xml` returns)
 - ``cache/noaa-weather/ndbc-stdmet/<station_id>/<year>.txt.gz``
 
-Same contract as :mod:`_lib.ghcn_download`. Mock fallback is opt-in
+Same contract as :mod:`_noaa_tools.ghcn_download`. Mock fallback is opt-in
 via ``use_mock=True``; by default the tool expects live network +
 ``requests``.
 """

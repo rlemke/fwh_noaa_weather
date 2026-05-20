@@ -1,7 +1,7 @@
 """Marine handlers — NDBC catalog, stdmet, summaries, buoys map.
 
-Thin dispatchers around :mod:`_lib.ndbc_download`, :mod:`_lib.ndbc_parse`,
-and :mod:`_lib.ndbc_map`. Same one-code-path story as the GHCN handlers —
+Thin dispatchers around :mod:`_noaa_tools.ndbc_download`, :mod:`_noaa_tools.ndbc_parse`,
+and :mod:`_noaa_tools.ndbc_map`. Same one-code-path story as the GHCN handlers —
 a facet invocation from FFL and a CLI run write identical sidecar-backed
 artifacts under ``cache/noaa-weather/``.
 """
@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-# Reach _lib through the existing handler shim (puts tools/ on sys.path).
+# Reach _noaa_tools through the existing handler shim (puts tools/ on sys.path).
 from ..shared.ghcn_utils import (  # noqa: F401
     ndbc_download,
     ndbc_map,
@@ -27,8 +27,8 @@ from ..shared.ghcn_utils import (  # noqa: F401
 
 # The shim handles the sys.path gymnastics already; these imports are
 # plain once it's loaded.
-from _lib import sidecar  # noqa: E402
-from _lib.storage import LocalStorage  # noqa: E402
+from _noaa_tools import sidecar  # noqa: E402
+from _noaa_tools.storage import LocalStorage  # noqa: E402
 
 logger = logging.getLogger("weather.marine")
 NAMESPACE = "weather.Marine"
@@ -120,7 +120,7 @@ def handle_discover_buoys(params: dict[str, Any]) -> dict[str, Any]:
     if bbox is None and region:
         # Import locally so this module stays importable when the
         # Geofabrik index isn't cached yet.
-        from _lib import geofabrik_regions
+        from _noaa_tools import geofabrik_regions
 
         try:
             info = geofabrik_regions.resolve_region(region, use_mock=use_mock)

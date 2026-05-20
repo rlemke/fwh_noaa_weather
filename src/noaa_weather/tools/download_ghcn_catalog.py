@@ -25,7 +25,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _lib import ghcn_download  # noqa: E402
+from _noaa_tools import ghcn_download  # noqa: E402
 
 CHOICES = list(ghcn_download.CATALOG_FILES)
 

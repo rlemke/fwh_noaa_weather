@@ -1,6 +1,6 @@
 """Deterministic mock fallbacks for offline / no-network testing.
 
-Activated by :mod:`_lib.ghcn_download` when the ``requests`` library
+Activated by :mod:`_noaa_tools.ghcn_download` when the ``requests`` library
 is unavailable, or by explicit ``use_mock=True`` callers. Tests rely
 on these being stable across runs — changes here break fixtures.
 """

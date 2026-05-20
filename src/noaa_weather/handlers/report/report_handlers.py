@@ -1,6 +1,6 @@
 """Report handlers — regional climate-report bundle generation.
 
-Wraps :func:`_lib.climate_report.generate_climate_report`, which is the
+Wraps :func:`_noaa_tools.climate_report.generate_climate_report`, which is the
 same core that the ``climate-report.sh`` CLI calls. The runtime and the
 terminal share one code path and write to one cache.
 """
@@ -106,7 +106,7 @@ def handle_generate_climate_report(params: dict[str, Any]) -> dict[str, Any]:
 def handle_list_regions_under(params: dict[str, Any]) -> dict[str, Any]:
     """Handle ListRegionsUnder — enumerate Geofabrik sub-regions.
 
-    Wraps :func:`_lib.geofabrik_regions.list_regions_under`. The
+    Wraps :func:`_noaa_tools.geofabrik_regions.list_regions_under`. The
     returned ``regions`` is a JSON array of path strings so FFL
     workflows can use ``andThen foreach`` to fan out reports across
     the set without any further marshalling.

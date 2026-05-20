@@ -1,6 +1,6 @@
 """Generate a regional climate report: JSON + Markdown + HTML + SVG charts.
 
-Thin CLI over :func:`_lib.climate_report.generate_climate_report`. Both
+Thin CLI over :func:`_noaa_tools.climate_report.generate_climate_report`. Both
 this tool and the FFL handler ``weather.Report.GenerateClimateReport``
 call the same core function, so the terminal run and the runtime
 produce identical output and share the same cache.
@@ -28,15 +28,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _lib import geofabrik_regions, ghcn_download, ghcn_parse  # noqa: E402
-from _lib.climate_report import (  # noqa: E402
+from _noaa_tools import geofabrik_regions, ghcn_download, ghcn_parse  # noqa: E402
+from _noaa_tools.climate_report import (  # noqa: E402
     DEFAULT_BASELINE,
     DEFAULT_BULK_THRESHOLD,
     ReportError,
     generate_climate_report,
     rebuild_report_derived_pages,
 )
-from _lib.storage import LocalStorage  # noqa: E402
+from _noaa_tools.storage import LocalStorage  # noqa: E402
 
 
 def _parse_baseline(s: str) -> tuple[int, int]:

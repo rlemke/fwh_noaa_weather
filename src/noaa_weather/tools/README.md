@@ -214,9 +214,9 @@ discovery filter's `--require` flag accepts any of these. All tools
 share the same mock-data story as GHCN — pass `--use-mock` for offline
 smoke tests.
 
-## `_lib/` — shared library
+## `_noaa_tools/` — shared library
 
-The real implementation lives in `_lib/`. Both the CLI tools and the FFL handlers import from it. Every handler shim (`handlers/shared/ghcn_utils.py`) re-exports `_lib/` symbols so FFL code works with familiar names.
+The real implementation lives in `_noaa_tools/`. Both the CLI tools and the FFL handlers import from it. Every handler shim (`handlers/shared/ghcn_utils.py`) re-exports `_noaa_tools/` symbols so FFL code works with familiar names.
 
 | Module | Role |
 |--------|------|
@@ -243,14 +243,14 @@ Every tool here follows [`agent-spec/tools-pattern.agent-spec.yaml`](../../../ag
 - One `.py` + one `.sh` per tool, no more.
 - `stdout` is for structured output (pipe-friendly); `stderr` is for logs.
 - Zero dependency on the Facetwork runtime, MongoDB, or the dashboard — tools must run without a cluster.
-- MongoDB writes live in the handler layer, not in `_lib/`. `_lib/` returns data; handlers persist.
+- MongoDB writes live in the handler layer, not in `_noaa_tools/`. `_noaa_tools/` returns data; handlers persist.
 - Cached artifacts always use the staged-write protocol (stage → finalize → write sidecar). Never bypass `sidecar.py`.
 
 ## Handler integration
 
-Handlers in `../handlers/` route through `../handlers/shared/ghcn_utils.py`, which adds `tools/` to `sys.path` and re-exports `_lib/` symbols. When you rename a function in `_lib/`, update the shim; handlers themselves rarely need to change.
+Handlers in `../handlers/` route through `../handlers/shared/ghcn_utils.py`, which adds `tools/` to `sys.path` and re-exports `_noaa_tools/` symbols. When you rename a function in `_noaa_tools/`, update the shim; handlers themselves rarely need to change.
 
-MongoDB stores (`WeatherReportStore`, `ClimateStore`) stay in the shim, not in `_lib/` — the CLI tools must be runnable standalone without a Mongo cluster.
+MongoDB stores (`WeatherReportStore`, `ClimateStore`) stay in the shim, not in `_noaa_tools/` — the CLI tools must be runnable standalone without a Mongo cluster.
 
 Every CLI tool has a matching FFL event facet in `../ffl/weather.ffl`:
 

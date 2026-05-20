@@ -3,7 +3,7 @@
 Pure functions that parse the fixed-width ``ghcnd-stations.txt`` and
 ``ghcnd-inventory.txt`` files published by NOAA, plus the per-station
 CSV (``csv/by_station/<id>.csv``). Downloads live in
-:mod:`_lib.ghcn_download`; MongoDB persistence lives in the handler
+:mod:`_noaa_tools.ghcn_download`; MongoDB persistence lives in the handler
 layer. This module is safe to import from any context — it has no
 filesystem, network, or database side effects.
 

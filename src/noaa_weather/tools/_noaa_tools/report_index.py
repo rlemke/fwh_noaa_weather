@@ -7,7 +7,7 @@ report grouped continent → country → sub-region, with links to the
 HTML, Markdown, JSON, and each SVG chart.
 
 Called as the last step of
-:func:`_lib.climate_report.generate_climate_report` so a fresh
+:func:`_noaa_tools.climate_report.generate_climate_report` so a fresh
 regional run always refreshes the master index.
 """
 

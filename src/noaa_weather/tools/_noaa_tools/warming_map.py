@@ -14,7 +14,7 @@ Click a polygon to open its ``report.html``.
 Output lives alongside the report index at
 ``cache/noaa-weather/climate-report/warming-map.html`` with a sibling
 ``.meta.json`` sidecar. Called from
-:func:`_lib.climate_report.generate_climate_report` at the same time
+:func:`_noaa_tools.climate_report.generate_climate_report` at the same time
 the master index regenerates.
 """
 

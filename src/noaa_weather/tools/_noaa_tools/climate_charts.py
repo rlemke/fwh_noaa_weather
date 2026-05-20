@@ -2,7 +2,7 @@
 
 Each function produces a standalone SVG string that the report
 generator embeds in HTML or writes to a file. Matplotlib is imported
-lazily inside each function so ``_lib`` callers that don't need charts
+lazily inside each function so ``_noaa_tools`` callers that don't need charts
 don't pay the import cost (matplotlib pulls in NumPy + PIL).
 
 Charts follow the visualization conventions referenced in the report:
@@ -174,7 +174,7 @@ def annual_trend(
 ) -> str:
     """Year-over-year mean temperature scatter with trend line."""
     _, plt = _import_matplotlib()
-    from _lib.climate_analysis import simple_linear_regression
+    from _noaa_tools.climate_analysis import simple_linear_regression
 
     rows = sorted(
         (r for r in annual_rows if r.get("temp_mean") is not None),

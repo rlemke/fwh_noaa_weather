@@ -79,10 +79,10 @@ fwh_noaa_weather/
     │   ├── ingest/
     │   ├── marine/
     │   ├── report/
-    │   └── shared/                 # ghcn_utils, weather_utils — shims into tools/_lib
+    │   └── shared/                 # ghcn_utils, weather_utils — shims into tools/_noaa_tools
     ├── ffl/                        # weather.ffl + compiled JSON
-    └── tools/                      # CLI utilities (CLI .py + .sh wrappers + _lib/)
-        ├── _lib/                   # download / parse / analysis / mocks / charts
+    └── tools/                      # CLI utilities (CLI .py + .sh wrappers + _noaa_tools/)
+        ├── _noaa_tools/                   # download / parse / analysis / mocks / charts
         ├── *.py                    # discover-stations, fetch-station-csv, …
         └── *.sh                    # shell wrappers
 ```
@@ -90,7 +90,7 @@ fwh_noaa_weather/
 The `tools/` dir gives every operation a CLI (e.g.
 `download-ghcn-catalog.sh`, `fetch-station-csv.sh`,
 `compute-region-trend.sh`); the FFL handlers call into the **same**
-`tools/_lib/` modules via the `handlers/shared/<domain>_utils.py` shim,
+`tools/_noaa_tools/` modules via the `handlers/shared/<domain>_utils.py` shim,
 so the two surfaces share one cache and one implementation.
 
 ## Required infrastructure

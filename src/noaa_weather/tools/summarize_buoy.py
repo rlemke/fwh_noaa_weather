@@ -36,8 +36,8 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _lib import ndbc_download, ndbc_parse, sidecar  # noqa: E402
-from _lib.storage import LocalStorage  # noqa: E402
+from _noaa_tools import ndbc_download, ndbc_parse, sidecar  # noqa: E402
+from _noaa_tools.storage import LocalStorage  # noqa: E402
 
 NAMESPACE = "noaa-weather"
 STDMET_CACHE_TYPE = ndbc_download.STDMET_CACHE_TYPE

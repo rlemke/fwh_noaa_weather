@@ -36,7 +36,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _lib import geofabrik_regions, ghcn_download, ghcn_parse  # noqa: E402
+from _noaa_tools import geofabrik_regions, ghcn_download, ghcn_parse  # noqa: E402
 
 # Safety threshold for bulk catalog-driven fetches. NOAA has ~120k stations
 # with multi-MB CSVs each; letting --from-catalog silently expand to all of

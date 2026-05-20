@@ -50,14 +50,14 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _lib import (  # noqa: E402
+from _noaa_tools import (  # noqa: E402
     climate_analysis,
     geofabrik_regions,
     ghcn_download,
     ghcn_parse,
     sidecar,
 )
-from _lib.storage import LocalStorage  # noqa: E402
+from _noaa_tools.storage import LocalStorage  # noqa: E402
 
 NAMESPACE = "noaa-weather"
 CACHE_TYPE = "climate-summary"

@@ -19,7 +19,7 @@ Write protocol (per cache-layout spec):
    "entry not present", so the artifact-before-sidecar order is critical.
 
 Network is optional. If ``requests`` is unavailable, downloaders fall
-back to deterministic mock data from :mod:`_lib.ghcn_mocks` so test
+back to deterministic mock data from :mod:`_noaa_tools.ghcn_mocks` so test
 suites run offline.
 """
 
@@ -35,7 +35,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-# Allow ``python _lib/ghcn_download.py`` and imports from tool scripts that
+# Allow ``python _noaa_tools/ghcn_download.py`` and imports from tool scripts that
 # put ``tools/`` on sys.path. When used as a package import, this is a no-op.
 _TOOLS_ROOT = Path(__file__).resolve().parent.parent
 if str(_TOOLS_ROOT) not in sys.path:
