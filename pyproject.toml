@@ -34,8 +34,8 @@ mongodb = [
 [project.urls]
 Repository = "https://github.com/rlemke/fwh_noaa_weather"
 
-[project.entry-points."facetwork.examples"]
-noaa-weather = "noaa_weather:example"
+[project.entry-points."facetwork.domains"]
+noaa-weather = "noaa_weather:domain"
 
 [tool.setuptools.packages.find]
 where = ["src"]
