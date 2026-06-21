@@ -1,0 +1,310 @@
+# Composability manifest for the noaa-weather package.
+#
+# Machine-readable index so an LLM can DISCOVER + REUSE these capabilities by
+# intent, the same way the platform's `fw_catalog_match` (workflow-level,
+# reuse-first) and `fw_capabilities` (facet-level capability index) tools work.
+#
+#   * `workflows` — entry-point facets, each with a natural-language `summary`
+#     (the kind of request it answers), `tags`, and a `param_schema` of the key
+#     parameters. Use these for reuse-first catalog matching: match an NL request
+#     against the summaries/tags before authoring anything new.
+#   * `facets` — a capability index of the core composable primitives by
+#     namespace, with `purpose`, `signature`, and the `effect`/`cost` taken
+#     verbatim from the `with Effect(...) / with Cost(...)` mixins in the FFL.
+#
+# This is a curated subset (the most reusable workflows + every event facet +
+# the semantic-discovery Vocab), NOT every workflow in the package (the dozens
+# of per-continent Analyze*/Cache* convenience wrappers all delegate to
+# AnalyzeStateTrends / CacheStateData and are intentionally omitted). Accurate
+# qualified names + signatures are sourced from the .ffl; see
+# `noaa_weather.catalog.load_manifest()`.
+
+version: 1
+package: noaa-weather
+
+workflows:
+  # --- Single station / single state -----------------------------------------
+  - qualified_name: weather.workflows.AnalyzeStation
+    summary: >-
+      Analyze a single GHCN-Daily weather station end to end: download its CSV,
+      compute per-year climate aggregates (TMAX/TMIN/PRCP), and reverse-geocode
+      its coordinates. The entry point for "climate history of one station".
+    tags: [climate, single-station, ghcn, trend, geocode]
+    entry_point: true
+    param_schema:
+      station_id: String
+      station_name: String
+      lat: Double
+      lon: Double
+      start_year: Int
+      end_year: Int
+
+  - qualified_name: weather.workflows.AnalyzeStateTrends
+    summary: >-
+      Analyze climate trends for one state/region: discover GHCN stations, fan
+      out per station (fetch + analyze + reverse-geocode), then compute a
+      regional warming/precipitation trend with a narrative. The preferred
+      entry point for "warming trend of <state/country>".
+    tags: [climate, state, region, trend, warming, fanout, ghcn]
+    entry_point: true
+    param_schema:
+      country: String
+      state: String
+      max_stations: Int
+      start_year: Int
+      end_year: Int
+
+  - qualified_name: weather.workflows.AnalyzeAllStates
+    summary: >-
+      Analyze climate trends for all 50 US states in parallel — a foreach
+      fan-out over AnalyzeStateTrends.
+    tags: [climate, usa, all-states, fanout, trend, warming]
+    entry_point: true
+    param_schema:
+      states: "[String]"
+      max_stations: Int
+      start_year: Int
+      end_year: Int
+
+  # --- Regional climate-report bundles ---------------------------------------
+  - qualified_name: weather.workflows.GenerateRegionReport
+    summary: >-
+      End-to-end regional climate report bundle (JSON + Markdown + HTML + 5
+      SVG charts: climograph, annual trend, warming stripes, year×month
+      heatmap, anomaly bars) for a country+state. Discover → fetch → monthly
+      rollups → render. The entry point for "make a climate report for <region>".
+    tags: [climate, report, html, charts, warming-stripes, normals, ghcn]
+    entry_point: true
+    param_schema:
+      country: String
+      state: String
+      start_year: Int
+      end_year: Int
+      baseline_start: Int
+      baseline_end: Int
+      min_years: Int
+      max_stations: Int
+
+  - qualified_name: weather.workflows.GenerateGeofabrikRegionReport
+    summary: >-
+      Same climate-report bundle as GenerateRegionReport but selects stations
+      by a Geofabrik region path (e.g. europe/germany,
+      north-america/us/california); the region's bounding box is the spatial
+      filter.
+    tags: [climate, report, geofabrik, region, bbox, html, charts]
+    entry_point: true
+    param_schema:
+      region: String
+      start_year: Int
+      end_year: Int
+      baseline_start: Int
+      baseline_end: Int
+      min_years: Int
+      max_stations: Int
+
+  - qualified_name: weather.workflows.GenerateRegionGroupReport
+    summary: >-
+      Generate a climate-report bundle for every Geofabrik region under a
+      prefix (e.g. Canada plus every province, Europe plus every country) via a
+      ListRegionsUnder + foreach fan-out — one report per region with its own
+      logs and retries.
+    tags: [climate, report, batch, fanout, geofabrik, regions]
+    entry_point: true
+    param_schema:
+      prefix: String
+      include_parents: Boolean
+      start_year: Int
+      end_year: Int
+      baseline_start: Int
+      baseline_end: Int
+      min_years: Int
+      max_stations: Int
+
+  # --- Marine / NDBC buoys ---------------------------------------------------
+  - qualified_name: weather.workflows.AnalyzeBuoyRegion
+    summary: >-
+      End-to-end NOAA NDBC buoy run: download the active-stations catalog,
+      discover buoys in a region, fan out fetch + summarize per station, then
+      render an interactive MapLibre points map. The entry point for "map and
+      summarize the ocean buoys off <region>".
+    tags: [marine, buoy, ndbc, ocean, map, maplibre, fanout]
+    entry_point: true
+    param_schema:
+      region: String
+      types: Json
+      require_fields: Json
+      max_stations: Int
+      start_year: Int
+      end_year: Int
+      use_mock: Boolean
+
+  # --- Cache warmup (download without analysis) ------------------------------
+  - qualified_name: weather.Cache.CacheStateData
+    summary: >-
+      Pre-download (warm the cache for) every discovered GHCN station CSV for
+      one state/region, without running analysis. Use to stage data ahead of a
+      report or trend run.
+    tags: [cache, warmup, download, ghcn, state, prefetch]
+    entry_point: true
+    param_schema:
+      country: String
+      state: String
+      max_stations: Int
+      start_year: Int
+      end_year: Int
+
+  - qualified_name: weather.Cache.CacheAllUSData
+    summary: >-
+      Warm the GHCN CSV cache for all 50 US states — a foreach fan-out over
+      CacheStateData.
+    tags: [cache, warmup, download, usa, all-states, prefetch]
+    entry_point: true
+    param_schema:
+      states: "[String]"
+      max_stations: Int
+      start_year: Int
+      end_year: Int
+
+facets:
+  # --- weather.Vocab : NL term -> GHCN element (semantic discovery) -----------
+  - qualified_name: weather.Vocab.ResolveElement
+    namespace: weather.Vocab
+    purpose: >-
+      Resolve a natural-language term (e.g. "max temperature", "rainfall",
+      "snow depth") to its GHCN-Daily element code (TMAX, TMIN, PRCP, SNOW,
+      SNWD), with confidence and a description. Use to fill `required_elements`
+      by intent instead of guessing codes.
+    signature: "ResolveElement(term: String) => (result: ElementResolution)"
+    effect: pure
+    cost: free
+
+  - qualified_name: weather.Vocab.ListElements
+    namespace: weather.Vocab
+    purpose: List the known GHCN-Daily element codes (TMAX, TMIN, PRCP, SNOW, SNWD) as a JSON array.
+    signature: "ListElements() => (elements: Json, count: Int)"
+    effect: pure
+    cost: free
+
+  # --- weather.Catalog : station discovery -----------------------------------
+  - qualified_name: weather.Catalog.DiscoverStations
+    namespace: weather.Catalog
+    purpose: >-
+      Discover GHCN-Daily stations by country/state/Geofabrik region, verifying
+      data availability via ghcnd-stations.txt + ghcnd-inventory.txt and
+      filtering by coverage years and required elements.
+    signature: "DiscoverStations(country: String = \"US\", state: String = \"\", region: String = \"\", max_stations: Int = 10, min_years: Int = 20, required_elements: Json = [\"TMAX\",\"TMIN\",\"PRCP\"]) => (stations: Json, station_count: Int)"
+    effect: external
+    cost: moderate
+
+  # --- weather.Ingest : per-station CSV download -----------------------------
+  - qualified_name: weather.Ingest.FetchStationData
+    namespace: weather.Ingest
+    purpose: >-
+      Download the GHCN-Daily CSV for one station from S3 (all years in one
+      file), filtered to [start_year, end_year].
+    signature: "FetchStationData(station_id: String, start_year: Int = 1944, end_year: Int = 2026) => (record_count: Int, years_with_data: Int, station_id: String)"
+    effect: external
+    cost: moderate
+
+  # --- weather.Analysis : climate compute ------------------------------------
+  - qualified_name: weather.Analysis.AnalyzeStationClimate
+    namespace: weather.Analysis
+    purpose: >-
+      Analyze a station across its full date range: read (downloading if
+      needed) the cached CSV and compute per-year climate summaries
+      (TMAX/TMIN/PRCP, hot/frost/precip days).
+    signature: "AnalyzeStationClimate(station_id: String, station_name: String, lat: Double, lon: Double, start_year: Int, end_year: Int, state: String = \"\") => (yearly_summaries: Json, years_analyzed: Int, station_id: String)"
+    effect: external
+    cost: moderate
+
+  - qualified_name: weather.Analysis.ComputeRegionTrend
+    namespace: weather.Analysis
+    purpose: >-
+      Aggregate cached per-station reports for a country/state and run linear
+      regression for the warming rate + precipitation change, with a narrative
+      summary. Reads stored reports; no downloads.
+    signature: "ComputeRegionTrend(country: String, state: String, start_year: Int, end_year: Int, station_count: Int = 0) => (trend: Json, narrative: String)"
+    effect: io
+    cost: cheap
+
+  - qualified_name: weather.Analysis.AnalyzeStationMonthly
+    namespace: weather.Analysis
+    purpose: >-
+      Produce per-(year, month) climate rollups for one station (mean/min/max
+      temp, total precip, hot/frost/precip days) from its cached CSV
+      (downloading if needed).
+    signature: "AnalyzeStationMonthly(station_id: String, station_name: String = \"\", state: String = \"\", start_year: Int = 1950, end_year: Int = 2026) => (monthly_rows: Json, months_analyzed: Int, station_id: String)"
+    effect: external
+    cost: moderate
+
+  # --- weather.Geocode : reverse geocode -------------------------------------
+  - qualified_name: weather.Geocode.ReverseGeocode
+    namespace: weather.Geocode
+    purpose: Reverse-geocode station coordinates to a place/address via OSM Nominatim (rate-limited).
+    signature: "ReverseGeocode(lat: Double, lon: Double) => (geo: GeoContext)"
+    effect: external
+    cost: cheap
+
+  # --- weather.Marine : NDBC buoy catalog / ingest / analysis / map ----------
+  - qualified_name: weather.Marine.DownloadNdbcCatalog
+    namespace: weather.Marine
+    purpose: >-
+      Download the NDBC active-stations catalog (XML + normalized JSON
+      sidecars); cached by default, force-refreshable.
+    signature: "DownloadNdbcCatalog(force: Boolean = false, use_mock: Boolean = false) => (xml_path: String, json_path: String, station_count: Int, was_cached: Boolean, used_mock: Boolean)"
+    effect: external
+    cost: moderate
+
+  - qualified_name: weather.Marine.DiscoverBuoys
+    namespace: weather.Marine
+    purpose: >-
+      Filter the cached NDBC catalog to a candidate buoy set by region/bbox,
+      station types, and required sensor fields. Reads cache; no network.
+    signature: "DiscoverBuoys(region: String = \"\", bbox: String = \"\", types: Json = [], require_fields: Json = [], max_stations: Int = 0, use_mock: Boolean = false) => (stations: Json, station_count: Int)"
+    effect: io
+    cost: cheap
+
+  - qualified_name: weather.Marine.FetchBuoyData
+    namespace: weather.Marine
+    purpose: >-
+      Download every stdmet year in [start_year, end_year] for one buoy
+      station; per-year failures are counted, not fatal.
+    signature: "FetchBuoyData(station_id: String, start_year: Int = 2015, end_year: Int = 2024, force: Boolean = false, use_mock: Boolean = false) => (station_id: String, requested: Int, fetched: Int, failed: Int)"
+    effect: external
+    cost: expensive
+
+  - qualified_name: weather.Marine.SummarizeBuoy
+    namespace: weather.Marine
+    purpose: Summarize every cached stdmet year for one station into a yearly buoy-climate JSON.
+    signature: "SummarizeBuoy(station_id: String, start_year: Int = 0, end_year: Int = 0) => (station_id: String, summary_path: String, years_analyzed: Int)"
+    effect: io
+    cost: cheap
+
+  - qualified_name: weather.Marine.BuildBuoysMap
+    namespace: weather.Marine
+    purpose: >-
+      Render the MapLibre buoy points map from the cached catalog + per-station
+      summaries (CARTO Voyager basemap, type-coloured circles).
+    signature: "BuildBuoysMap(dependency_signal: Int = 0) => (html_path: String, station_count: Int)"
+    effect: io
+    cost: cheap
+
+  # --- weather.Report : regional report bundle + region listing --------------
+  - qualified_name: weather.Report.GenerateClimateReport
+    namespace: weather.Report
+    purpose: >-
+      Generate a regional climate-report bundle (JSON aggregates, Markdown
+      narrative, self-contained HTML, 5 SVG charts). Self-contained: re-runs
+      discovery + download internally.
+    signature: "GenerateClimateReport(country: String = \"US\", state: String = \"\", region: String = \"\", start_year: Int = 1950, end_year: Int = 2026, baseline_start: Int = 1991, baseline_end: Int = 2020, min_years: Int = 20, max_stations: Int = 0, required_elements: Json = [\"TMAX\",\"TMIN\",\"PRCP\"], override_bulk_guard: Boolean = false) => (output_dir: String, report_json: String, report_md: String, report_html: String, chart_paths: Json, station_count: Int, narrative: String)"
+    effect: external
+    cost: expensive
+
+  - qualified_name: weather.Report.ListRegionsUnder
+    namespace: weather.Report
+    purpose: >-
+      List every Geofabrik region under a path prefix (the fan-out driver for
+      GenerateRegionGroupReport). Reads the cached Geofabrik index.
+    signature: "ListRegionsUnder(prefix: String, include_parents: Boolean = false) => (regions: Json, region_count: Int)"
+    effect: io
+    cost: cheap

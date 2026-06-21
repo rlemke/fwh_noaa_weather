@@ -120,6 +120,35 @@ namespace weather.mixins {
 }
 
 // ---------------------------------------------------------------------------
+// Vocab — natural-language term -> GHCN-Daily element code
+// ---------------------------------------------------------------------------
+//
+// Semantic-discovery primitive (the weather analogue of osm.Vocab.ResolveTag):
+// maps an NL phrase like "max temperature" / "rainfall" / "snow depth" to its
+// 4-char GHCN-Daily element code (TMAX, TMIN, PRCP, SNOW, SNWD) so an LLM can
+// fill `required_elements` by intent instead of guessing codes. Pure / free:
+// it's a static lookup with no I/O. The supported set mirrors the elements the
+// parser recognises (`_noaa_tools.ghcn_parse._ELEMENT_SET`).
+
+namespace weather.Vocab {
+    schema ElementResolution {
+        element: String,
+        confidence: Double,
+        description: String
+    }
+
+    /** Resolve a natural-language term (e.g. "max temperature", "rainfall",
+      * "snow depth") to its GHCN-Daily element code (TMAX, TMIN, PRCP, SNOW,
+      * SNWD), with confidence and a human-readable description. Pure static
+      * lookup — no I/O. */
+    facet ResolveElement(term: String) => (result: ElementResolution) with Effect(kind = "pure") with Cost(tier = "free")
+
+    /** List the known GHCN-Daily element codes this package understands as a
+      * JSON array (TMAX, TMIN, PRCP, SNOW, SNWD). */
+    facet ListElements() => (elements: Json, count: Int) with Effect(kind = "pure") with Cost(tier = "free")
+}
+
+// ---------------------------------------------------------------------------
 // Catalog — discovery with inventory verification
 // ---------------------------------------------------------------------------
 
@@ -141,7 +170,7 @@ namespace weather.Catalog {
         max_stations: Int = 10,
         min_years: Int = 20,
         required_elements: Json = ["TMAX","TMIN","PRCP"]
-    ) => (stations: Json, station_count: Int) with RetryPolicy()
+    ) => (stations: Json, station_count: Int) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate")
 }
 
 // ---------------------------------------------------------------------------
@@ -154,7 +183,7 @@ namespace weather.Ingest {
     /** Download the GHCN-Daily CSV for a station from S3.
       * One file per station contains ALL years — no per-year loop needed.
       * Filters records to [start_year, end_year] range during download. */
-    event facet FetchStationData(station_id: String, start_year: Int = 1944, end_year: Int = 2026) => (record_count: Int, years_with_data: Int, station_id: String) with RetryPolicy()
+    event facet FetchStationData(station_id: String, start_year: Int = 1944, end_year: Int = 2026) => (record_count: Int, years_with_data: Int, station_id: String) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate")
 }
 
 // ---------------------------------------------------------------------------
@@ -167,14 +196,14 @@ namespace weather.Analysis {
     /** Analyze a station across its full date range in one handler call.
       * Reads the downloaded CSV, computes daily/yearly aggregates (TMAX, TMIN, PRCP),
       * and produces per-year climate summaries. */
-    event facet AnalyzeStationClimate(station_id: String, station_name: String, lat: Double, lon: Double, start_year: Int, end_year: Int, state: String = "") => (yearly_summaries: Json, years_analyzed: Int, station_id: String)
+    event facet AnalyzeStationClimate(station_id: String, station_name: String, lat: Double, lon: Double, start_year: Int, end_year: Int, state: String = "") => (yearly_summaries: Json, years_analyzed: Int, station_id: String) with Effect(kind = "external") with Cost(tier = "moderate")
 
     /** Compute region-level climate trend from station analyses.
       * Aggregates all station reports for a country+state, runs linear regression
       * on temperature and precipitation, generates narrative summary.
       * @param station_count Dependency signal — pass discovery.station_count to ensure
       *   this step waits for all station analyses to complete before aggregating. */
-    event facet ComputeRegionTrend(country: String, state: String, start_year: Int, end_year: Int, station_count: Int = 0) => (trend: Json, narrative: String)
+    event facet ComputeRegionTrend(country: String, state: String, start_year: Int, end_year: Int, station_count: Int = 0) => (trend: Json, narrative: String) with Effect(kind = "io") with Cost(tier = "cheap")
 
     /** Produce per-(year, month) rollups for a single station.
       * Reads the station's cached GHCN CSV, computes monthly climate
@@ -187,7 +216,7 @@ namespace weather.Analysis {
         state: String = "",
         start_year: Int = 1950,
         end_year: Int = 2026
-    ) => (monthly_rows: Json, months_analyzed: Int, station_id: String)
+    ) => (monthly_rows: Json, months_analyzed: Int, station_id: String) with Effect(kind = "external") with Cost(tier = "moderate")
 }
 
 // ---------------------------------------------------------------------------
@@ -198,7 +227,7 @@ namespace weather.Geocode {
     use weather.types
 
     /** Reverse geocode station coordinates via OSM Nominatim. */
-    event facet ReverseGeocode(lat: Double, lon: Double) => (geo: GeoContext) with RateLimit()
+    event facet ReverseGeocode(lat: Double, lon: Double) => (geo: GeoContext) with RateLimit() with Effect(kind = "external") with Cost(tier = "cheap")
 }
 
 // ---------------------------------------------------------------------------
@@ -228,7 +257,7 @@ namespace weather.Marine {
         station_count: Int,
         was_cached: Boolean,
         used_mock: Boolean
-    ) with RetryPolicy()
+    ) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate")
 
     /** Filter the cached NDBC catalog to a candidate buoy set.
       *
@@ -243,7 +272,7 @@ namespace weather.Marine {
         require_fields: Json = [],
         max_stations: Int = 0,
         use_mock: Boolean = false
-    ) => (stations: Json, station_count: Int)
+    ) => (stations: Json, station_count: Int) with Effect(kind = "io") with Cost(tier = "cheap")
 
     /** Download every stdmet year in ``[start_year, end_year]`` for one
       * station. Iterates internally so FFL callers don't need a range
@@ -260,7 +289,7 @@ namespace weather.Marine {
         requested: Int,
         fetched: Int,
         failed: Int
-    ) with RetryPolicy()
+    ) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "expensive")
 
     /** Summarize every cached stdmet year for one station into a yearly
       * buoy-climate JSON. No-op for stations without cached stdmet. */
@@ -272,14 +301,14 @@ namespace weather.Marine {
         station_id: String,
         summary_path: String,
         years_analyzed: Int
-    )
+    ) with Effect(kind = "io") with Cost(tier = "cheap")
 
     /** Render the MapLibre buoy points map from the cached catalog
       * (and any per-station summaries). Uses CARTO Voyager basemap;
       * colour-codes circles by station type. */
     event facet BuildBuoysMap(
         dependency_signal: Int = 0
-    ) => (html_path: String, station_count: Int)
+    ) => (html_path: String, station_count: Int) with Effect(kind = "io") with Cost(tier = "cheap")
 }
 
 // ---------------------------------------------------------------------------
@@ -326,7 +355,7 @@ namespace weather.Report {
         chart_paths: Json,
         station_count: Int,
         narrative: String
-    )
+    ) with Effect(kind = "external") with Cost(tier = "expensive")
 
     /** List every Geofabrik region under a path prefix.
       *
@@ -342,7 +371,7 @@ namespace weather.Report {
     event facet ListRegionsUnder(
         prefix: String,
         include_parents: Boolean = false
-    ) => (regions: Json, region_count: Int)
+    ) => (regions: Json, region_count: Int) with Effect(kind = "io") with Cost(tier = "cheap")
 }
 
 // ---------------------------------------------------------------------------
