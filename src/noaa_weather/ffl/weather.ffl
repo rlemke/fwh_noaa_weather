@@ -141,11 +141,11 @@ namespace weather.Vocab {
       * "snow depth") to its GHCN-Daily element code (TMAX, TMIN, PRCP, SNOW,
       * SNWD), with confidence and a human-readable description. Pure static
       * lookup — no I/O. */
-    facet ResolveElement(term: String) => (result: ElementResolution) with Effect(kind = "pure") with Cost(tier = "free")
+    event facet ResolveElement(term: String) => (result: ElementResolution) with Effect(kind = "pure") with Cost(tier = "free")
 
     /** List the known GHCN-Daily element codes this package understands as a
       * JSON array (TMAX, TMIN, PRCP, SNOW, SNWD). */
-    facet ListElements() => (elements: Json, count: Int) with Effect(kind = "pure") with Cost(tier = "free")
+    event facet ListElements() => (elements: Json, count: Int) with Effect(kind = "pure") with Cost(tier = "free")
 }
 
 // ---------------------------------------------------------------------------
