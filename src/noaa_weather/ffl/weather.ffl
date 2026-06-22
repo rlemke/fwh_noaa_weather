@@ -250,6 +250,7 @@ namespace weather.Extremes {
     event facet DetectStationExtremes(
         station_id: String,
         station_name: String = "",
+        state: String = "",
         start_year: Int = 1944,
         end_year: Int = 2026,
         heat_wave_tmax_c: Double = 35.0,
@@ -262,6 +263,14 @@ namespace weather.Extremes {
         dry_spell_min_days: Int = 21,
         heavy_snow_mm: Double = 100.0
     ) => (events: Json, event_count: Int, counts_by_type: Json, decadal_frequency: Json, summary: String, station_id: String) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate")
+
+    /** Roll up the per-station extreme events DetectStationExtremes persisted for
+      * a region (filtered by `state`) into region totals + per-type decadal
+      * TRENDS (is this region seeing more heat waves / fewer cold snaps over the
+      * decades?). Reads stored rollups; no downloads.
+      * @param station_count Dependency signal — pass discovery.station_count so
+      *   this waits for every station's detection to finish before aggregating. */
+    event facet AggregateRegionExtremes(country: String, state: String, start_year: Int, end_year: Int, station_count: Int = 0) => (aggregate: Json, narrative: String, station_count: Int) with Effect(kind = "io") with Cost(tier = "cheap")
 }
 
 // ---------------------------------------------------------------------------
@@ -459,6 +468,37 @@ namespace weather.workflows {
             yield DetectStationExtremeEvents(status = "failed", summary = "Extreme-event detection failed for " ++ $.station_id)
         }
         yield DetectStationExtremeEvents(status = "completed", summary = events.summary)
+    }
+
+    /** Region-level extreme-event analysis: discover the region's stations,
+      * detect each station's extreme events, then aggregate into region totals +
+      * per-type decadal TRENDS — "is <state> seeing more heat waves / fewer cold
+      * snaps over the decades?". DiscoverStations -> foreach station
+      * DetectStationExtremes -> AggregateRegionExtremes. Supply country + state;
+      * every threshold is optional with a standard default. */
+    workflow DetectRegionExtremes(
+        country: String = "US",
+        state: String = "NY",
+        max_stations: Int = 5,
+        start_year: Int = 1944,
+        end_year: Int = 2026,
+        heat_wave_tmax_c: Double = 35.0,
+        heat_wave_min_days: Int = 3,
+        cold_snap_tmin_c: Double = -10.0,
+        cold_snap_min_days: Int = 3,
+        heavy_rain_mm: Double = 50.0,
+        wet_day_mm: Double = 1.0,
+        wet_spell_min_days: Int = 5,
+        dry_spell_min_days: Int = 21,
+        heavy_snow_mm: Double = 100.0
+    ) => (status: String, narrative: String) andThen {
+        discovery = DiscoverStations(country = $.country, state = $.state, max_stations = $.max_stations) andThen foreach station in discovery.stations {
+            events = DetectStationExtremes(station_id = $.station.station_id, station_name = $.station.name, state = $.state, start_year = $.start_year, end_year = $.end_year, heat_wave_tmax_c = $.heat_wave_tmax_c, heat_wave_min_days = $.heat_wave_min_days, cold_snap_tmin_c = $.cold_snap_tmin_c, cold_snap_min_days = $.cold_snap_min_days, heavy_rain_mm = $.heavy_rain_mm, wet_day_mm = $.wet_day_mm, wet_spell_min_days = $.wet_spell_min_days, dry_spell_min_days = $.dry_spell_min_days, heavy_snow_mm = $.heavy_snow_mm) catch {
+                yield DetectRegionExtremes(status = "partial_failure", narrative = "")
+            }
+        }
+        region = AggregateRegionExtremes(country = $.country, state = $.state, start_year = $.start_year, end_year = $.end_year, station_count = discovery.station_count)
+        yield DetectRegionExtremes(status = "completed", narrative = region.narrative)
     }
 
     /** Analyze climate trends for a state: discover stations, analyze each, compute trend.

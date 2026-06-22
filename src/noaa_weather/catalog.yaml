@@ -63,6 +63,31 @@ workflows:
       dry_spell_min_days: Int
       heavy_snow_mm: Double
 
+  - qualified_name: weather.workflows.DetectRegionExtremes
+    summary: >-
+      Region-level extreme-event analysis: discover a state/country's stations,
+      detect each one's extreme events, then aggregate into region totals and
+      per-type DECADAL TRENDS. The entry point for "is <state> seeing more heat
+      waves / fewer cold snaps / more heavy rain over the decades?" — the
+      region-wide, multi-station version of DetectStationExtremeEvents.
+    tags: [climate, extremes, trend, region, heat-wave, drought, cold-snap, ghcn, fan-out]
+    entry_point: true
+    param_schema:
+      country: String
+      state: String
+      max_stations: Int
+      start_year: Int
+      end_year: Int
+      heat_wave_tmax_c: Double
+      heat_wave_min_days: Int
+      cold_snap_tmin_c: Double
+      cold_snap_min_days: Int
+      heavy_rain_mm: Double
+      wet_day_mm: Double
+      wet_spell_min_days: Int
+      dry_spell_min_days: Int
+      heavy_snow_mm: Double
+
   - qualified_name: weather.workflows.AnalyzeStateTrends
     summary: >-
       Analyze climate trends for one state/region: discover GHCN stations, fan
@@ -270,9 +295,20 @@ facets:
       catalog (type, span, duration, peak value), per-type counts, and per-decade
       frequency. Beyond linear trends; every threshold is defaulted to a common
       climatological convention.
-    signature: "DetectStationExtremes(station_id: String, station_name: String = \"\", start_year: Int = 1944, end_year: Int = 2026, heat_wave_tmax_c: Double = 35.0, heat_wave_min_days: Int = 3, cold_snap_tmin_c: Double = -10.0, cold_snap_min_days: Int = 3, heavy_rain_mm: Double = 50.0, wet_day_mm: Double = 1.0, wet_spell_min_days: Int = 5, dry_spell_min_days: Int = 21, heavy_snow_mm: Double = 100.0) => (events: Json, event_count: Int, counts_by_type: Json, decadal_frequency: Json, summary: String, station_id: String)"
+    signature: "DetectStationExtremes(station_id: String, station_name: String = \"\", state: String = \"\", start_year: Int = 1944, end_year: Int = 2026, heat_wave_tmax_c: Double = 35.0, heat_wave_min_days: Int = 3, cold_snap_tmin_c: Double = -10.0, cold_snap_min_days: Int = 3, heavy_rain_mm: Double = 50.0, wet_day_mm: Double = 1.0, wet_spell_min_days: Int = 5, dry_spell_min_days: Int = 21, heavy_snow_mm: Double = 100.0) => (events: Json, event_count: Int, counts_by_type: Json, decadal_frequency: Json, summary: String, station_id: String)"
     effect: external
     cost: moderate
+
+  - qualified_name: weather.Extremes.AggregateRegionExtremes
+    namespace: weather.Extremes
+    purpose: >-
+      Aggregate the per-station extreme rollups DetectStationExtremes persisted
+      for a region into region totals + per-type decadal trends (rising/falling
+      heat waves, cold snaps, etc.). Reads stored rollups; no downloads. The
+      region counterpart of ComputeRegionTrend, for extremes.
+    signature: "AggregateRegionExtremes(country: String, state: String, start_year: Int, end_year: Int, station_count: Int = 0) => (aggregate: Json, narrative: String, station_count: Int)"
+    effect: io
+    cost: cheap
 
   # --- weather.Geocode : reverse geocode -------------------------------------
   - qualified_name: weather.Geocode.ReverseGeocode

@@ -16,9 +16,12 @@ from typing import Any
 
 from ..shared.ghcn_utils import (
     ExtremeConfig,
+    ExtremeEventStore,
+    aggregate_region,
     detect_events,
     download_station_csv,
     extremes,
+    get_weather_db,
     parse_ghcn_csv,
 )
 
@@ -45,6 +48,7 @@ def handle_detect_station_extremes(params: dict[str, Any]) -> dict[str, Any]:
     station_name = params.get("station_name", "") or station_id
     start_year = int(params.get("start_year", 1944))
     end_year = int(params.get("end_year", 2026))
+    state = params.get("state", "")
     step_log = params.get("_step_log")
 
     config = ExtremeConfig.from_params(params)
@@ -66,6 +70,24 @@ def handle_detect_station_extremes(params: dict[str, Any]) -> dict[str, Any]:
 
     result = detect_events(daily_data, config)
     summary = extremes.summarize(result, label=station_name)
+
+    # Best-effort persist a per-station rollup so AggregateRegionExtremes can read
+    # it back by region (same pattern AnalyzeStationClimate -> ComputeRegionTrend
+    # uses). Tagged with `location` (the state) for the region filter.
+    try:
+        ExtremeEventStore(get_weather_db()).upsert_station({
+            "station_id": station_id,
+            "station_name": station_name,
+            "location": state,
+            "start_year": start_year,
+            "end_year": end_year,
+            "event_count": result["event_count"],
+            "counts_by_type": result["counts_by_type"],
+            "decadal_frequency": result["decadal_frequency"],
+        })
+    except Exception as exc:  # noqa: BLE001 - persistence is best-effort
+        logger.warning("Could not persist extreme rollup for %s: %s", station_id, exc)
+
     _step_log(step_log, f"{summary} ({time.monotonic() - t0:.1f}s)", "success")
 
     return {
@@ -78,8 +100,45 @@ def handle_detect_station_extremes(params: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def handle_aggregate_region_extremes(params: dict[str, Any]) -> dict[str, Any]:
+    """Handle AggregateRegionExtremes — roll up per-station extremes for a region.
+
+    Reads the per-station extreme rollups persisted by DetectStationExtremes
+    (filtered by location/state), sums them, and computes per-type decadal trends
+    (rising/falling) across the region. `station_count` is the dependency signal
+    (pass discovery.station_count) so this waits for the foreach to finish — the
+    same pattern as ComputeRegionTrend.
+    """
+    country = params.get("country", "US")
+    state = params.get("state", "")
+    region = state or country
+    step_log = params.get("_step_log")
+
+    try:
+        store = ExtremeEventStore(get_weather_db())
+    except Exception as exc:  # noqa: BLE001 - no DB -> empty aggregate, not a crash
+        logger.warning("MongoDB unavailable for region aggregate: %s", exc)
+        return {"aggregate": json.dumps({"region": region, "station_count": 0, "total_events": 0}),
+                "narrative": f"No extreme-event data available for {region}.", "station_count": 0}
+
+    per_station = store.find_for_region(state)
+    agg = aggregate_region(per_station, region_label=region)
+    try:
+        store.upsert_region(state, agg)
+    except Exception:  # noqa: BLE001 - best-effort
+        pass
+
+    _step_log(step_log, agg["narrative"], "success")
+    return {
+        "aggregate": json.dumps(agg),
+        "narrative": agg["narrative"],
+        "station_count": agg["station_count"],
+    }
+
+
 _DISPATCH: dict[str, Any] = {
     f"{NAMESPACE}.DetectStationExtremes": handle_detect_station_extremes,
+    f"{NAMESPACE}.AggregateRegionExtremes": handle_aggregate_region_extremes,
 }
 
 

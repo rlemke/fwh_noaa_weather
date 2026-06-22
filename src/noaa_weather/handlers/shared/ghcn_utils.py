@@ -56,6 +56,7 @@ from noaa_weather.tools._noaa_tools.climate_analysis import (  # noqa: F401
 )
 from noaa_weather.tools._noaa_tools.extremes import (  # noqa: F401
     ExtremeConfig,
+    aggregate_region,
     detect_events,
 )
 from noaa_weather.tools._noaa_tools.ghcn_parse import (  # noqa: F401
@@ -281,6 +282,42 @@ class ClimateStore:
         return None
 
 
+class ExtremeEventStore:
+    """Mongo wrapper for ``weather_extreme_events`` (per-station extreme rollups)
+    and ``weather_extreme_regions`` (region aggregates). Mirrors how
+    WeatherReportStore/ClimateStore back the per-station -> region readback used
+    by ComputeRegionTrend: DetectStationExtremes upserts one doc per station,
+    AggregateRegionExtremes reads them back by location."""
+
+    def __init__(self, db: Any) -> None:
+        self.stations = db["weather_extreme_events"]
+        self.regions = db["weather_extreme_regions"]
+        self._ensure_indexes()
+
+    def _ensure_indexes(self) -> None:
+        self.stations.create_index([("station_id", 1)], unique=True)
+        self.stations.create_index([("location", 1)])
+
+    def upsert_station(self, doc: dict[str, Any]) -> None:
+        import datetime as _dt
+        self.stations.update_one(
+            {"station_id": doc["station_id"]},
+            {"$set": {**doc, "updated_at": _dt.datetime.now(_dt.timezone.utc).isoformat()}},
+            upsert=True,
+        )
+
+    def find_for_region(self, location: str) -> list[dict[str, Any]]:
+        query = {"location": location} if location else {}
+        return list(self.stations.find(query, {"_id": 0}))
+
+    def upsert_region(self, location: str, aggregate: dict[str, Any]) -> None:
+        self.regions.update_one(
+            {"location": location},
+            {"$set": {"location": location, **aggregate}},
+            upsert=True,
+        )
+
+
 __all__ = [
     # Parser re-exports.
     "US_STATE_BOUNDS",
@@ -298,6 +335,7 @@ __all__ = [
     "extremes",
     "ExtremeConfig",
     "detect_events",
+    "aggregate_region",
     # Download wrappers (legacy-compatible shapes).
     "download_inventory",
     "download_station_catalog",
@@ -317,5 +355,6 @@ __all__ = [
     # Mongo (handler-only — not part of the ``_noaa_tools`` surface).
     "ClimateStore",
     "WeatherReportStore",
+    "ExtremeEventStore",
     "get_weather_db",
 ]

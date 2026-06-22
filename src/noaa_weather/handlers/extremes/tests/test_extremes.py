@@ -138,7 +138,89 @@ def test_handler_requires_station_id():
 
 def test_dispatch_and_registration():
     from unittest.mock import MagicMock
-    assert set(eh._DISPATCH) == {"weather.Extremes.DetectStationExtremes"}
+    assert set(eh._DISPATCH) == {
+        "weather.Extremes.DetectStationExtremes",
+        "weather.Extremes.AggregateRegionExtremes",
+    }
     runner = MagicMock()
     eh.register_handlers(runner)
-    assert runner.register_handler.call_args.kwargs["facet_name"] == "weather.Extremes.DetectStationExtremes"
+    registered = {c.kwargs["facet_name"] for c in runner.register_handler.call_args_list}
+    assert registered == set(eh._DISPATCH)
+
+
+# ---- region-level aggregation --------------------------------------------
+
+from noaa_weather.tools._noaa_tools.extremes import aggregate_region  # noqa: E402
+
+
+def test_aggregate_region_sums_and_trends():
+    a = {"counts_by_type": {"heat_wave": 6, "cold_snap": 6},
+         "decadal_frequency": {"heat_wave": {"1990s": 1, "2000s": 2, "2010s": 3},
+                               "cold_snap": {"1990s": 3, "2000s": 2, "2010s": 1}}}
+    b = {"counts_by_type": {"heat_wave": 3},
+         "decadal_frequency": {"heat_wave": {"1990s": 1, "2000s": 1, "2010s": 1}}}
+    agg = aggregate_region([a, b], region_label="NY")
+    assert agg["station_count"] == 2
+    assert agg["counts_by_type"]["heat_wave"] == 9 and agg["counts_by_type"]["cold_snap"] == 6
+    assert agg["by_type_decade"]["heat_wave"] == {"1990s": 2, "2000s": 3, "2010s": 4}
+    assert agg["trends"]["heat_wave"]["direction"] == "rising"
+    assert agg["trends"]["cold_snap"]["direction"] == "falling"
+    assert "NY" in agg["narrative"]
+
+
+def test_aggregate_region_empty():
+    agg = aggregate_region([], region_label="ZZ")
+    assert agg["station_count"] == 0 and agg["total_events"] == 0
+
+
+class _FakeStore:
+    def __init__(self, docs):
+        self._docs = docs
+        self.saved = None
+    def __call__(self, db):           # used as ExtremeEventStore(get_weather_db())
+        return self
+    def find_for_region(self, loc):
+        return [d for d in self._docs if not loc or d.get("location") == loc]
+    def upsert_region(self, loc, agg):
+        self.saved = (loc, agg)
+    def upsert_station(self, doc):
+        self.saved = doc
+
+
+def test_detect_handler_persists_rollup(monkeypatch):
+    store = _FakeStore([])
+    monkeypatch.setattr(eh, "get_weather_db", lambda: object())
+    monkeypatch.setattr(eh, "ExtremeEventStore", store)
+    monkeypatch.setattr(eh, "download_station_csv", lambda sid, **k: "/tmp/x.csv")
+    monkeypatch.setattr(eh, "parse_ghcn_csv", lambda p, s, e: list(_DAILY))
+    out = eh.handle_detect_station_extremes({"station_id": "X", "state": "NY",
+                                             "start_year": 2010, "end_year": 2011})
+    assert out["event_count"] == 2
+    assert store.saved["station_id"] == "X" and store.saved["location"] == "NY"
+    assert store.saved["event_count"] == 2 and "decadal_frequency" in store.saved
+
+
+def test_aggregate_region_handler_reads_back(monkeypatch):
+    docs = [
+        {"station_id": "A", "location": "NY", "counts_by_type": {"heat_wave": 6},
+         "decadal_frequency": {"heat_wave": {"1990s": 1, "2000s": 2, "2010s": 3}}},
+        {"station_id": "B", "location": "NY", "counts_by_type": {"heat_wave": 3},
+         "decadal_frequency": {"heat_wave": {"1990s": 1, "2000s": 1, "2010s": 1}}},
+    ]
+    monkeypatch.setattr(eh, "get_weather_db", lambda: object())
+    monkeypatch.setattr(eh, "ExtremeEventStore", _FakeStore(docs))
+    out = eh.handle_aggregate_region_extremes({"country": "US", "state": "NY",
+                                               "start_year": 1990, "end_year": 2020})
+    assert out["station_count"] == 2
+    agg = json.loads(out["aggregate"])
+    assert agg["counts_by_type"]["heat_wave"] == 9
+    assert agg["trends"]["heat_wave"]["direction"] == "rising"
+
+
+def test_aggregate_region_handler_no_db(monkeypatch):
+    def _boom():
+        raise RuntimeError("no mongo")
+    monkeypatch.setattr(eh, "get_weather_db", _boom)
+    out = eh.handle_aggregate_region_extremes({"country": "US", "state": "NY",
+                                               "start_year": 1990, "end_year": 2020})
+    assert out["station_count"] == 0

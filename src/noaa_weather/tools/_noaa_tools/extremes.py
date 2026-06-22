@@ -203,3 +203,73 @@ def summarize(result: dict, *, label: str = "this station") -> str:
         return f"No extreme events detected for {label} with the given thresholds."
     parts = [f"{n} {t.replace('_', ' ')}{'s' if n != 1 else ''}" for t, n in sorted(c.items())]
     return f"{label}: {result['event_count']} extreme events — " + ", ".join(parts) + "."
+
+
+# --- region-level aggregation ----------------------------------------------
+
+def _slope(xs: list[float], ys: list[float]) -> float:
+    """OLS slope of ys over xs (0.0 if undefined). Self-contained — no deps."""
+    n = len(xs)
+    if n < 2:
+        return 0.0
+    mx = sum(xs) / n
+    my = sum(ys) / n
+    den = sum((x - mx) ** 2 for x in xs)
+    if den == 0:
+        return 0.0
+    return sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / den
+
+
+def _decade_num(decade: str) -> int:
+    """'1990s' -> 1990."""
+    return int(decade.rstrip("s"))
+
+
+def aggregate_region(per_station: list[dict], *, region_label: str = "region") -> dict:
+    """Aggregate many per-station ``detect_events`` results into a region rollup.
+
+    ``per_station`` is a list of dicts each carrying ``counts_by_type`` and
+    ``decadal_frequency`` (the per-station detector output, or the persisted
+    subset of it). Returns region totals, the per-type-per-decade matrix summed
+    across stations, a per-type decadal TREND (events/decade slope + direction),
+    and a narrative — answering "is this region seeing more heat waves / fewer
+    cold snaps over time?". Pure; the Mongo readback is the handler's job.
+    """
+    station_count = len(per_station)
+    totals: dict[str, int] = {}
+    by_type_decade: dict[str, dict[str, int]] = {}
+    for r in per_station:
+        for t, n in (r.get("counts_by_type") or {}).items():
+            totals[t] = totals.get(t, 0) + int(n)
+        for t, decs in (r.get("decadal_frequency") or {}).items():
+            d = by_type_decade.setdefault(t, {})
+            for dec, n in decs.items():
+                d[dec] = d.get(dec, 0) + int(n)
+
+    trends: dict[str, dict] = {}
+    for t, decs in by_type_decade.items():
+        pts = sorted((_decade_num(dec), cnt) for dec, cnt in decs.items())
+        per_decade = round(_slope([p[0] for p in pts], [p[1] for p in pts]) * 10, 2)
+        direction = "rising" if per_decade > 0 else "falling" if per_decade < 0 else "flat"
+        trends[t] = {"per_decade_change": per_decade, "direction": direction}
+
+    notable = sorted(trends.items(), key=lambda kv: abs(kv[1]["per_decade_change"]), reverse=True)
+    phrases = [f"{t.replace('_', ' ')}s {tr['direction']} {abs(tr['per_decade_change'])}/decade"
+               for t, tr in notable[:3] if tr["per_decade_change"] != 0]
+    total = sum(totals.values())
+    if not station_count or not total:
+        narrative = f"No extreme-event data found for {region_label}."
+    else:
+        narrative = (f"Across {station_count} station(s) in {region_label}: {total} extreme events. "
+                     + ("Decadal trends: " + ", ".join(phrases) + "." if phrases
+                        else "No clear decadal trend."))
+
+    return {
+        "region": region_label,
+        "station_count": station_count,
+        "total_events": total,
+        "counts_by_type": totals,
+        "by_type_decade": by_type_decade,
+        "trends": trends,
+        "narrative": narrative,
+    }
