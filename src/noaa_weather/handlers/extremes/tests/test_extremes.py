@@ -250,9 +250,21 @@ def test_extremes_html_structure():
     assert "heat wave" in html and "<svg>" in html and "hot" in html
 
 
-def test_render_handler_writes_files(tmp_path, monkeypatch):
-    monkeypatch.setattr(eh, "LocalStorage", lambda: object())
-    monkeypatch.setattr(eh.sidecar, "cache_path", lambda ns, ct, rel, storage: str(tmp_path))
+class _FakeStorage:
+    """Records writes through the Storage abstraction (join + write_text_atomic)."""
+    def __init__(self):
+        self.writes = {}
+    def join(self, *parts):
+        return "/".join(p.rstrip("/") for p in parts)
+    def write_text_atomic(self, path, text):
+        self.writes[path] = text
+
+
+def test_render_handler_writes_via_storage(monkeypatch):
+    store = _FakeStorage()
+    monkeypatch.setattr(eh, "get_storage", lambda: store)
+    monkeypatch.setattr(eh.sidecar, "cache_path",
+                        lambda ns, ct, rel, storage: "s3://afl-cache/cache/noaa-weather/extremes-viz/NYC")
     monkeypatch.setattr(eh.sidecar, "write_sidecar", lambda *a, **k: None)
     out = eh.handle_render_extremes_chart({
         "title": "NYC extremes", "label": "USW00094728",
@@ -261,38 +273,25 @@ def test_render_handler_writes_files(tmp_path, monkeypatch):
         "trends": '{"heat_wave": {"direction": "rising", "per_decade_change": 1.0}}',
         "summary": "rising heat",
     })
-    assert out["html_path"].endswith("extremes.html") and out["svg_path"].endswith("extremes.svg")
-    html = open(out["html_path"]).read()
-    assert "NYC extremes" in html and "<rect" in html and "rising" in html
+    # paths come back as the (possibly s3://) storage paths the abstraction wrote to
+    assert out["html_path"] == "s3://afl-cache/cache/noaa-weather/extremes-viz/NYC/extremes.html"
+    assert out["svg_path"] == "s3://afl-cache/cache/noaa-weather/extremes-viz/NYC/extremes.svg"
+    assert "<rect" in store.writes[out["svg_path"]] and "rising" in store.writes[out["svg_path"]]
+    assert "NYC extremes" in store.writes[out["html_path"]]
 
 
-def test_render_handler_uploads_to_s3(monkeypatch):
-    # when the cache root is s3:// (AFL_STORAGE=s3 in the fleet), upload via boto3
-    puts = []
-    monkeypatch.setattr(eh, "LocalStorage", lambda: object())
-    monkeypatch.setattr(eh.sidecar, "cache_path",
-                        lambda ns, ct, rel, storage: "s3://afl-cache/cache/noaa-weather/extremes-viz/NY")
-    monkeypatch.setattr(eh, "_put_s3", lambda b, k, body, ct: puts.append((b, k, ct)))
-    out = eh.handle_render_extremes_chart({
-        "title": "T", "label": "NY",
-        "counts_by_type": {"heat_wave": 1}, "decadal_frequency": {"heat_wave": {"2000s": 1}}})
-    assert out["html_path"] == "s3://afl-cache/cache/noaa-weather/extremes-viz/NY/extremes.html"
-    assert out["svg_path"] == "s3://afl-cache/cache/noaa-weather/extremes-viz/NY/extremes.svg"
-    assert ("afl-cache", "cache/noaa-weather/extremes-viz/NY/extremes.svg", "image/svg+xml") in puts
-    assert ("afl-cache", "cache/noaa-weather/extremes-viz/NY/extremes.html", "text/html") in puts
-
-
-def test_render_handler_coerces_dict_inputs(tmp_path, monkeypatch):
+def test_render_handler_coerces_dict_inputs(monkeypatch):
     # FFL may hand the Json params through already-parsed (dict), not as a string
-    monkeypatch.setattr(eh, "LocalStorage", lambda: object())
-    monkeypatch.setattr(eh.sidecar, "cache_path", lambda ns, ct, rel, storage: str(tmp_path))
+    store = _FakeStorage()
+    monkeypatch.setattr(eh, "get_storage", lambda: store)
+    monkeypatch.setattr(eh.sidecar, "cache_path", lambda ns, ct, rel, storage: "/tmp/x")
     monkeypatch.setattr(eh.sidecar, "write_sidecar", lambda *a, **k: None)
     out = eh.handle_render_extremes_chart({
         "title": "T", "label": "L",
         "counts_by_type": {"heat_wave": 1},
         "decadal_frequency": {"heat_wave": {"2000s": 1}},
     })
-    assert open(out["svg_path"]).read().count("<rect") >= 1
+    assert store.writes[out["svg_path"]].count("<rect") >= 1
 
 
 def test_aggregate_region_handler_no_db(monkeypatch):

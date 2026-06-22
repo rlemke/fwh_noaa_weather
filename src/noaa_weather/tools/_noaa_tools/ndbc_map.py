@@ -26,7 +26,7 @@ if str(_TOOLS_ROOT) not in sys.path:
     sys.path.insert(0, str(_TOOLS_ROOT))
 
 from . import ndbc_download, sidecar  # noqa: E402
-from .storage import LocalStorage, Storage  # noqa: E402
+from .storage import Storage, get_storage  # noqa: E402
 
 logger = logging.getLogger("noaa-weather.ndbc-map")
 
@@ -53,7 +53,7 @@ def rebuild_buoys_map(storage: Storage | None = None) -> Path | None:
 
     Returns the output path or ``None`` if there's no catalog yet.
     """
-    s = storage or LocalStorage()
+    s = storage or get_storage()
     try:
         stations = ndbc_download.read_catalog_stations(storage=s)
     except FileNotFoundError:
@@ -113,10 +113,10 @@ def rebuild_buoys_map(storage: Storage | None = None) -> Path | None:
     geojson = {"type": "FeatureCollection", "features": features}
     html = _render_html(geojson, type_counts)
 
-    out_dir = Path(sidecar.cache_dir(NAMESPACE, CATALOG_CACHE_TYPE, s))
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / OUTPUT_RELATIVE_PATH
-    out_path.write_text(html, encoding="utf-8")
+    # Write through the storage abstraction so the map lands in durable storage
+    # on any backend (local path or s3://MinIO) — Path/open can't handle s3.
+    out_path = s.join(sidecar.cache_dir(NAMESPACE, CATALOG_CACHE_TYPE, s), OUTPUT_RELATIVE_PATH)
+    s.write_text_atomic(out_path, html)
 
     body_bytes = html.encode("utf-8")
     sidecar.write_sidecar(

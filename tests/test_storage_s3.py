@@ -1,0 +1,51 @@
+"""Storage backend selection + S3Storage wiring (no live MinIO needed).
+
+The s3 round-trip against real MinIO is covered out-of-band; here we assert the
+backend dispatch, the data_root defaults, and that S3Storage implements the full
+Storage interface and delegates to facetwork's S3StorageBackend.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from noaa_weather.tools._noaa_tools import storage as st
+
+
+def test_get_storage_dispatch(monkeypatch):
+    monkeypatch.delenv("AFL_STORAGE", raising=False)
+    assert isinstance(st.get_storage("local"), st.LocalStorage)
+    assert st.get_storage("s3").name == "s3"
+    assert isinstance(st.get_storage("s3"), st.S3Storage)
+    with pytest.raises(ValueError, match="s3"):
+        st.get_storage("bogus")
+
+
+def test_default_backend_follows_env(monkeypatch):
+    monkeypatch.setenv("AFL_STORAGE", "s3")
+    assert st.default_backend() == "s3"
+    assert isinstance(st.get_storage(), st.S3Storage)
+
+
+def test_data_root_s3_default(monkeypatch):
+    monkeypatch.delenv("AFL_DATA_ROOT", raising=False)
+    assert st.data_root("s3") == st.S3_DEFAULT_ROOT
+    assert st.data_root("local") == st.LOCAL_DEFAULT_ROOT
+    monkeypatch.setenv("AFL_DATA_ROOT", "s3://my-bucket")
+    assert st.data_root("s3") == "s3://my-bucket"
+
+
+def test_s3_storage_implements_interface():
+    s = st.get_storage("s3")
+    for m in ("exists", "size", "mkdir_p", "unlink", "rename", "read_text",
+              "write_text_atomic", "open_write_binary", "lock",
+              "finalize_from_local", "finalize_dir_from_local"):
+        assert callable(getattr(s, m)), m
+    assert s.supports_locking is False
+
+
+def test_local_round_trip(tmp_path):
+    s = st.get_storage("local")
+    p = str(tmp_path / "sub" / "a.txt")
+    s.write_text_atomic(p, "hello")
+    assert s.exists(p) and s.read_text(p) == "hello" and s.size(p) == 5

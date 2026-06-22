@@ -56,6 +56,7 @@ from typing import IO, Iterator
 
 LOCAL_DEFAULT_ROOT = "/Volumes/afl_data"
 HDFS_DEFAULT_ROOT = "/user/afl"
+S3_DEFAULT_ROOT = "s3://afl-cache"
 
 
 class Storage(abc.ABC):
@@ -380,6 +381,106 @@ class HdfsStorage(Storage):
         os.unlink(local_path)
 
 
+class S3Storage(Storage):
+    """S3 / MinIO backend — delegates to ``facetwork.runtime.storage`` (the same
+    object store the platform writes step payloads to), so handlers that go
+    through the Storage abstraction work unchanged on ``AFL_STORAGE=s3``.
+
+    S3 has no directories or locking: ``mkdir_p`` is a no-op (key prefixes are
+    implicit), ``lock`` yields (object PUT is atomic-on-close; single-writer
+    semantics assumed, like the HDFS backend). ``rename`` and the finalize
+    helpers copy-then-delete via streamed object I/O.
+    """
+    name = "s3"
+
+    def __init__(self) -> None:
+        try:
+            from facetwork.runtime.storage import S3StorageBackend
+        except ImportError as exc:
+            raise RuntimeError(
+                "S3 backend unavailable: could not import "
+                "facetwork.runtime.storage.S3StorageBackend (requires the "
+                f"Facetwork runtime package). Underlying error: {exc}"
+            ) from exc
+        self._backend = S3StorageBackend()
+
+    @property
+    def supports_locking(self) -> bool:
+        return False
+
+    def exists(self, path: str) -> bool:
+        return self._backend.exists(path)
+
+    def size(self, path: str) -> int:
+        return self._backend.getsize(path)
+
+    def mkdir_p(self, path: str) -> None:
+        if path:
+            self._backend.makedirs(path, exist_ok=True)
+
+    def unlink(self, path: str) -> None:
+        try:
+            self._backend.remove(path)
+        except FileNotFoundError:
+            pass
+        except Exception:
+            if not self._backend.exists(path):
+                return
+            raise
+
+    def _stream_copy(self, src_open, dst_path: str) -> None:
+        parent = self.dirname(dst_path)
+        if parent:
+            self.mkdir_p(parent)
+        with src_open() as src, self._backend.open(dst_path, "wb") as dst:
+            while True:
+                chunk = src.read(1024 * 1024)
+                if not chunk:
+                    break
+                dst.write(chunk)
+
+    def rename(self, src: str, dst: str) -> None:
+        if self._backend.exists(dst):
+            self.unlink(dst)
+        self._stream_copy(lambda: self._backend.open(src, "rb"), dst)
+        self.unlink(src)
+
+    def read_text(self, path: str) -> str:
+        with self._backend.open(path, "r") as f:
+            return f.read()
+
+    def write_text_atomic(self, path: str, text: str) -> None:
+        parent = self.dirname(path)
+        if parent:
+            self.mkdir_p(parent)
+        with self._backend.open(path, "w") as f:
+            f.write(text)
+
+    def open_write_binary(self, path: str) -> IO[bytes]:
+        parent = self.dirname(path)
+        if parent:
+            self.mkdir_p(parent)
+        return self._backend.open(path, "wb")
+
+    @contextmanager
+    def lock(self, path: str, *, exclusive: bool) -> Iterator[None]:
+        yield
+
+    def finalize_from_local(self, local_path: str, dst_path: str) -> None:
+        self._stream_copy(lambda: open(local_path, "rb"), dst_path)
+        os.unlink(local_path)
+
+    def finalize_dir_from_local(self, local_dir: str, dst_dir: str) -> None:
+        for root, _dirs, files in os.walk(local_dir):
+            rel = os.path.relpath(root, local_dir)
+            for fname in files:
+                local_path = os.path.join(root, fname)
+                key = fname if rel == "." else f"{rel}/{fname}"
+                self._stream_copy(lambda lp=local_path: open(lp, "rb"),
+                                  self.join(dst_dir, key))
+        shutil.rmtree(local_dir, ignore_errors=True)
+
+
 # ---------------------------------------------------------------------------
 # Backend selection.
 # ---------------------------------------------------------------------------
@@ -394,8 +495,10 @@ def get_storage(backend: str | None = None) -> Storage:
         return LocalStorage()
     if name == "hdfs":
         return HdfsStorage()
+    if name == "s3":
+        return S3Storage()
     raise ValueError(
-        f"Unknown storage backend: {name!r} (expected 'local' or 'hdfs')"
+        f"Unknown storage backend: {name!r} (expected 'local', 'hdfs', or 's3')"
     )
 
 
@@ -413,7 +516,11 @@ def data_root(backend: str | None = None) -> str:
     if env:
         return env
     name = (backend or default_backend()).lower()
-    return HDFS_DEFAULT_ROOT if name == "hdfs" else LOCAL_DEFAULT_ROOT
+    if name == "hdfs":
+        return HDFS_DEFAULT_ROOT
+    if name == "s3":
+        return S3_DEFAULT_ROOT
+    return LOCAL_DEFAULT_ROOT
 
 
 def _derived_root(env_var: str, subdir: str, backend: str | None = None) -> str:
