@@ -88,6 +88,35 @@ workflows:
       dry_spell_min_days: Int
       heavy_snow_mm: Double
 
+  - qualified_name: weather.workflows.VisualizeStationExtremes
+    summary: >-
+      Detect one station's extreme events AND render them as a chart: an HTML page
+      with an SVG bar chart of per-decade event frequency by type. The entry point
+      for "show me a chart of the heat waves / extremes for <station>".
+    tags: [climate, extremes, chart, visualization, single-station, ghcn, html]
+    entry_point: true
+    param_schema:
+      station_id: String
+      station_name: String
+      start_year: Int
+      end_year: Int
+
+  - qualified_name: weather.workflows.VisualizeRegionExtremes
+    summary: >-
+      Region-level extreme-event analysis AND a chart of the decadal trends:
+      discover the region's stations, detect each one's extremes, aggregate, and
+      render an HTML/SVG chart of per-decade frequency by type (rising heat waves,
+      falling cold snaps, …). The entry point for "chart how <state>'s extreme
+      weather is changing over the decades".
+    tags: [climate, extremes, chart, visualization, trend, region, ghcn, html]
+    entry_point: true
+    param_schema:
+      country: String
+      state: String
+      max_stations: Int
+      start_year: Int
+      end_year: Int
+
   - qualified_name: weather.workflows.AnalyzeStateTrends
     summary: >-
       Analyze climate trends for one state/region: discover GHCN stations, fan
@@ -306,7 +335,18 @@ facets:
       for a region into region totals + per-type decadal trends (rising/falling
       heat waves, cold snaps, etc.). Reads stored rollups; no downloads. The
       region counterpart of ComputeRegionTrend, for extremes.
-    signature: "AggregateRegionExtremes(country: String, state: String, start_year: Int, end_year: Int, station_count: Int = 0) => (aggregate: Json, narrative: String, station_count: Int)"
+    signature: "AggregateRegionExtremes(country: String, state: String, start_year: Int, end_year: Int, station_count: Int = 0) => (aggregate: Json, narrative: String, station_count: Int, counts_by_type: Json, decadal_frequency: Json, trends: Json)"
+    effect: io
+    cost: cheap
+
+  - qualified_name: weather.Extremes.RenderExtremesChart
+    namespace: weather.Extremes
+    purpose: >-
+      Render an extreme-event result (counts_by_type + decadal_frequency, +
+      optional trends) as an SVG bar chart of per-decade frequency by event type
+      plus a self-contained HTML page. Dependency-free (raw SVG, no matplotlib);
+      no downloads.
+    signature: "RenderExtremesChart(title: String, label: String = \"\", counts_by_type: Json = #{}, decadal_frequency: Json = #{}, trends: Json = #{}, summary: String = \"\") => (html_path: String, svg_path: String)"
     effect: io
     cost: cheap
 

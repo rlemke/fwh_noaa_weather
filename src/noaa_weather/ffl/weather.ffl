@@ -270,7 +270,14 @@ namespace weather.Extremes {
       * decades?). Reads stored rollups; no downloads.
       * @param station_count Dependency signal — pass discovery.station_count so
       *   this waits for every station's detection to finish before aggregating. */
-    event facet AggregateRegionExtremes(country: String, state: String, start_year: Int, end_year: Int, station_count: Int = 0) => (aggregate: Json, narrative: String, station_count: Int) with Effect(kind = "io") with Cost(tier = "cheap")
+    event facet AggregateRegionExtremes(country: String, state: String, start_year: Int, end_year: Int, station_count: Int = 0) => (aggregate: Json, narrative: String, station_count: Int, counts_by_type: Json, decadal_frequency: Json, trends: Json) with Effect(kind = "io") with Cost(tier = "cheap")
+
+    /** Render an extreme-event result as a chart (SVG bar chart of per-decade
+      * frequency by event type) + a self-contained HTML page, and return their
+      * paths. Feed it the `counts_by_type` + `decadal_frequency` (+ optional
+      * `trends`) that DetectStationExtremes / AggregateRegionExtremes emit.
+      * Pure rendering — no downloads, no matplotlib. */
+    event facet RenderExtremesChart(title: String, label: String = "", counts_by_type: Json = #{}, decadal_frequency: Json = #{}, trends: Json = #{}, summary: String = "") => (html_path: String, svg_path: String) with Effect(kind = "io") with Cost(tier = "cheap")
 }
 
 // ---------------------------------------------------------------------------
@@ -499,6 +506,44 @@ namespace weather.workflows {
         }
         region = AggregateRegionExtremes(country = $.country, state = $.state, start_year = $.start_year, end_year = $.end_year, station_count = discovery.station_count)
         yield DetectRegionExtremes(status = "completed", narrative = region.narrative)
+    }
+
+    /** Detect one station's extreme events AND render them as a chart + HTML page.
+      * DetectStationExtremes -> RenderExtremesChart. Supply a station_id; returns
+      * the path to a self-contained HTML chart of per-decade event frequency. */
+    workflow VisualizeStationExtremes(
+        station_id: String,
+        station_name: String = "",
+        start_year: Int = 1944,
+        end_year: Int = 2026
+    ) => (status: String, html_path: String) andThen {
+        events = DetectStationExtremes(station_id = $.station_id, station_name = $.station_name, start_year = $.start_year, end_year = $.end_year) catch {
+            yield VisualizeStationExtremes(status = "failed", html_path = "")
+        }
+        chart = RenderExtremesChart(title = "Extreme events — " ++ $.station_name, label = $.station_id, counts_by_type = events.counts_by_type, decadal_frequency = events.decadal_frequency, summary = events.summary)
+        yield VisualizeStationExtremes(status = "completed", html_path = chart.html_path)
+    }
+
+    /** Region-level extreme-event analysis AND a chart of the decadal trends.
+      * DiscoverStations -> foreach DetectStationExtremes -> AggregateRegionExtremes
+      * -> RenderExtremesChart. Supply country + state; returns the region trend
+      * narrative + the path to a chart showing each event type's per-decade
+      * frequency (rising heat waves, falling cold snaps, …). */
+    workflow VisualizeRegionExtremes(
+        country: String = "US",
+        state: String = "NY",
+        max_stations: Int = 5,
+        start_year: Int = 1944,
+        end_year: Int = 2026
+    ) => (status: String, narrative: String, html_path: String) andThen {
+        discovery = DiscoverStations(country = $.country, state = $.state, max_stations = $.max_stations) andThen foreach station in discovery.stations {
+            events = DetectStationExtremes(station_id = $.station.station_id, station_name = $.station.name, state = $.state, start_year = $.start_year, end_year = $.end_year) catch {
+                yield VisualizeRegionExtremes(status = "partial_failure", narrative = "", html_path = "")
+            }
+        }
+        region = AggregateRegionExtremes(country = $.country, state = $.state, start_year = $.start_year, end_year = $.end_year, station_count = discovery.station_count)
+        chart = RenderExtremesChart(title = "Extreme-event decadal trends — " ++ $.state, label = $.state, counts_by_type = region.counts_by_type, decadal_frequency = region.decadal_frequency, trends = region.trends, summary = region.narrative)
+        yield VisualizeRegionExtremes(status = "completed", narrative = region.narrative, html_path = chart.html_path)
     }
 
     /** Analyze climate trends for a state: discover stations, analyze each, compute trend.

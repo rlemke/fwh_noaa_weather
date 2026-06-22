@@ -40,6 +40,7 @@ from noaa_weather.tools._noaa_tools import (  # noqa: F401
     climate_analysis,
     climate_report,
     extremes,
+    extremes_chart,
     geocode_nominatim,
     geofabrik_regions,
     ghcn_download,
@@ -333,6 +334,7 @@ __all__ = [
     "simple_linear_regression",
     # Extreme-event detection re-exports.
     "extremes",
+    "extremes_chart",
     "ExtremeConfig",
     "detect_events",
     "aggregate_region",

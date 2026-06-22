@@ -141,6 +141,7 @@ def test_dispatch_and_registration():
     assert set(eh._DISPATCH) == {
         "weather.Extremes.DetectStationExtremes",
         "weather.Extremes.AggregateRegionExtremes",
+        "weather.Extremes.RenderExtremesChart",
     }
     runner = MagicMock()
     eh.register_handlers(runner)
@@ -215,6 +216,67 @@ def test_aggregate_region_handler_reads_back(monkeypatch):
     agg = json.loads(out["aggregate"])
     assert agg["counts_by_type"]["heat_wave"] == 9
     assert agg["trends"]["heat_wave"]["direction"] == "rising"
+    # top-level wiring fields for the render step
+    assert json.loads(out["counts_by_type"])["heat_wave"] == 9
+    assert json.loads(out["decadal_frequency"])["heat_wave"] == {"1990s": 2, "2000s": 3, "2010s": 4}
+    assert json.loads(out["trends"])["heat_wave"]["direction"] == "rising"
+
+
+# ---- visualization --------------------------------------------------------
+
+from noaa_weather.tools._noaa_tools import extremes_chart  # noqa: E402
+
+
+def test_decadal_bars_svg_has_bars_and_legend():
+    svg = extremes_chart.decadal_bars_svg(
+        {"heat_wave": {"1990s": 1, "2000s": 3}, "cold_snap": {"1990s": 2}},
+        title="T", trends={"heat_wave": {"direction": "rising", "per_decade_change": 1.0}})
+    assert svg.startswith("<svg") and svg.rstrip().endswith("</svg>")
+    assert svg.count("<rect") >= 3            # 2 heat-wave + 1 cold-snap bars
+    assert "rising" in svg and "1990s" in svg
+
+
+def test_decadal_bars_svg_empty():
+    svg = extremes_chart.decadal_bars_svg({}, title="None")
+    assert "<svg" in svg and "no events" in svg
+
+
+def test_extremes_html_structure():
+    html = extremes_chart.extremes_html(
+        title="Extremes", label="USW1", svg="<svg></svg>",
+        counts_by_type={"heat_wave": 3}, trends={"heat_wave": {"direction": "rising"}},
+        summary="hot")
+    assert "<h1>Extremes</h1>" in html and "USW1" in html
+    assert "heat wave" in html and "<svg>" in html and "hot" in html
+
+
+def test_render_handler_writes_files(tmp_path, monkeypatch):
+    monkeypatch.setattr(eh, "LocalStorage", lambda: object())
+    monkeypatch.setattr(eh.sidecar, "cache_path", lambda ns, ct, rel, storage: str(tmp_path))
+    monkeypatch.setattr(eh.sidecar, "write_sidecar", lambda *a, **k: None)
+    out = eh.handle_render_extremes_chart({
+        "title": "NYC extremes", "label": "USW00094728",
+        "counts_by_type": '{"heat_wave": 3, "cold_snap": 2}',
+        "decadal_frequency": '{"heat_wave": {"1990s": 1, "2000s": 2}, "cold_snap": {"1990s": 2}}',
+        "trends": '{"heat_wave": {"direction": "rising", "per_decade_change": 1.0}}',
+        "summary": "rising heat",
+    })
+    assert out["html_path"].endswith("extremes.html") and out["svg_path"].endswith("extremes.svg")
+    html = open(out["html_path"]).read()
+    assert "NYC extremes" in html and "<rect" in html and "rising" in html
+
+
+def test_render_handler_coerces_dict_inputs(tmp_path, monkeypatch):
+    # FFL may hand the Json params through already-parsed (dict), not as a string
+    monkeypatch.setattr(eh, "LocalStorage", lambda: object())
+    monkeypatch.setattr(eh.sidecar, "cache_path", lambda ns, ct, rel, storage: str(tmp_path))
+    monkeypatch.setattr(eh.sidecar, "write_sidecar", lambda *a, **k: None)
+    out = eh.handle_render_extremes_chart({
+        "title": "T", "label": "L",
+        "counts_by_type": {"heat_wave": 1},
+        "decadal_frequency": {"heat_wave": {"2000s": 1}},
+    })
+    assert open(out["svg_path"]).read().count("<rect") >= 1
 
 
 def test_aggregate_region_handler_no_db(monkeypatch):
