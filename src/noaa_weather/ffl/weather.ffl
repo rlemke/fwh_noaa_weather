@@ -220,6 +220,51 @@ namespace weather.Analysis {
 }
 
 // ---------------------------------------------------------------------------
+// Extremes — extreme-event detection from GHCN-Daily records
+// ---------------------------------------------------------------------------
+//
+// Beyond linear trends: surface the discrete extreme events in a station's
+// record — heat waves, cold snaps, wet & dry spells, and heavy rain/snow days —
+// with their span, intensity, and per-decade frequency. Reuses the shared
+// download+parse path and the pure `_noaa_tools.extremes` library.
+
+namespace weather.Extremes {
+    use weather.types
+
+    /** Detect extreme weather events for one GHCN-Daily station: heat waves,
+      * cold snaps, wet & dry spells, and heavy rain / snow days. Returns the
+      * event catalog (each with type, start/end date, duration, and a headline
+      * `peak_value`), per-type counts, and per-decade frequency.
+      *
+      * Every threshold has a sensible climatological default — to get the
+      * standard events you only supply `station_id`; tune any knob to taste:
+      *   @param heat_wave_tmax_c    daily high (°C) marking a heat-wave day (35)
+      *   @param heat_wave_min_days  consecutive hot days to qualify (3)
+      *   @param cold_snap_tmin_c    daily low (°C) marking a cold-snap day (-10)
+      *   @param cold_snap_min_days  consecutive cold days to qualify (3)
+      *   @param heavy_rain_mm       single-day rainfall counted as heavy (50)
+      *   @param wet_day_mm          rainfall marking a day "wet" for spells (1)
+      *   @param wet_spell_min_days  consecutive wet days to qualify (5)
+      *   @param dry_spell_min_days  consecutive dry days to qualify (21)
+      *   @param heavy_snow_mm       single-day snowfall counted as heavy (100) */
+    event facet DetectStationExtremes(
+        station_id: String,
+        station_name: String = "",
+        start_year: Int = 1944,
+        end_year: Int = 2026,
+        heat_wave_tmax_c: Double = 35.0,
+        heat_wave_min_days: Int = 3,
+        cold_snap_tmin_c: Double = -10.0,
+        cold_snap_min_days: Int = 3,
+        heavy_rain_mm: Double = 50.0,
+        wet_day_mm: Double = 1.0,
+        wet_spell_min_days: Int = 5,
+        dry_spell_min_days: Int = 21,
+        heavy_snow_mm: Double = 100.0
+    ) => (events: Json, event_count: Int, counts_by_type: Json, decadal_frequency: Json, summary: String, station_id: String) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate")
+}
+
+// ---------------------------------------------------------------------------
 // Geocode — reverse geocode station coordinates
 // ---------------------------------------------------------------------------
 
@@ -389,6 +434,31 @@ namespace weather.workflows {
         climate = AnalyzeStationClimate(station_id = $.station_id, station_name = $.station_name, lat = $.lat, lon = $.lon, start_year = $.start_year, end_year = $.end_year)
         geo = ReverseGeocode(lat = $.lat, lon = $.lon)
         yield AnalyzeStation(status = "completed", detail = "Analyzed " ++ fetch.station_id ++ ": " ++ climate.years_analyzed ++ " years")
+    }
+
+    /** Detect extreme weather events for a single station (heat waves, cold
+      * snaps, wet/dry spells, heavy rain & snow days). Supply a `station_id`;
+      * every threshold is optional with a standard climatological default, so a
+      * human runs it with one field and tunes the rest only if they want to. */
+    workflow DetectStationExtremeEvents(
+        station_id: String,
+        station_name: String = "",
+        start_year: Int = 1944,
+        end_year: Int = 2026,
+        heat_wave_tmax_c: Double = 35.0,
+        heat_wave_min_days: Int = 3,
+        cold_snap_tmin_c: Double = -10.0,
+        cold_snap_min_days: Int = 3,
+        heavy_rain_mm: Double = 50.0,
+        wet_day_mm: Double = 1.0,
+        wet_spell_min_days: Int = 5,
+        dry_spell_min_days: Int = 21,
+        heavy_snow_mm: Double = 100.0
+    ) => (status: String, summary: String) andThen {
+        events = DetectStationExtremes(station_id = $.station_id, station_name = $.station_name, start_year = $.start_year, end_year = $.end_year, heat_wave_tmax_c = $.heat_wave_tmax_c, heat_wave_min_days = $.heat_wave_min_days, cold_snap_tmin_c = $.cold_snap_tmin_c, cold_snap_min_days = $.cold_snap_min_days, heavy_rain_mm = $.heavy_rain_mm, wet_day_mm = $.wet_day_mm, wet_spell_min_days = $.wet_spell_min_days, dry_spell_min_days = $.dry_spell_min_days, heavy_snow_mm = $.heavy_snow_mm) catch {
+            yield DetectStationExtremeEvents(status = "failed", summary = "Extreme-event detection failed for " ++ $.station_id)
+        }
+        yield DetectStationExtremeEvents(status = "completed", summary = events.summary)
     }
 
     /** Analyze climate trends for a state: discover stations, analyze each, compute trend.

@@ -39,6 +39,7 @@ from typing import Any
 from noaa_weather.tools._noaa_tools import (  # noqa: F401
     climate_analysis,
     climate_report,
+    extremes,
     geocode_nominatim,
     geofabrik_regions,
     ghcn_download,
@@ -52,6 +53,10 @@ from noaa_weather.tools._noaa_tools.climate_analysis import (  # noqa: F401
     aggregate_region_trend,
     compute_yearly_summaries,
     simple_linear_regression,
+)
+from noaa_weather.tools._noaa_tools.extremes import (  # noqa: F401
+    ExtremeConfig,
+    detect_events,
 )
 from noaa_weather.tools._noaa_tools.ghcn_parse import (  # noqa: F401
     US_STATE_BOUNDS,
@@ -289,6 +294,10 @@ __all__ = [
     "aggregate_region_trend",
     "compute_yearly_summaries",
     "simple_linear_regression",
+    # Extreme-event detection re-exports.
+    "extremes",
+    "ExtremeConfig",
+    "detect_events",
     # Download wrappers (legacy-compatible shapes).
     "download_inventory",
     "download_station_catalog",

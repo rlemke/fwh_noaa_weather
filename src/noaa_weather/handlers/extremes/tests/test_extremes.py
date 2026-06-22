@@ -1,0 +1,144 @@
+"""Offline tests for extreme-event detection (pure lib + handler seam mocked)."""
+
+from __future__ import annotations
+
+import json
+from datetime import date, timedelta
+
+import pytest
+
+from noaa_weather.handlers.extremes import extremes_handlers as eh
+from noaa_weather.tools._noaa_tools.extremes import (
+    ExtremeConfig,
+    detect_events,
+)
+
+
+def _seq(start: str, values: list[dict]) -> list[dict]:
+    """Build consecutive daily records from a per-day override list."""
+    d0 = date.fromisoformat(start)
+    out = []
+    for i, v in enumerate(values):
+        rec = {"date": (d0 + timedelta(days=i)).isoformat(),
+               "tmax": None, "tmin": None, "prcp": None, "snow": None, "snwd": None}
+        rec.update(v)
+        out.append(rec)
+    return out
+
+
+# ---- pure detection -------------------------------------------------------
+
+def test_heat_wave_run_and_peak():
+    out = detect_events(_seq("2001-06-01", [{"tmax": 36.0}] * 4))
+    assert out["counts_by_type"].get("heat_wave") == 1
+    hw = next(e for e in out["events"] if e["type"] == "heat_wave")
+    assert hw["duration_days"] == 4 and hw["peak_value"] == 36.0
+    assert hw["start_date"] == "2001-06-01" and hw["year"] == 2001
+
+
+def test_gap_and_min_days_break_the_run():
+    # two 2-day hot stretches with a gap -> neither reaches the 3-day minimum
+    daily = _seq("2001-06-01", [{"tmax": 36.0}] * 2) + _seq("2001-06-05", [{"tmax": 36.0}] * 2)
+    out = detect_events(daily)
+    assert out["counts_by_type"].get("heat_wave", 0) == 0
+
+
+def test_cold_snap():
+    out = detect_events(_seq("2002-01-10", [{"tmin": -12.0}] * 3))
+    cs = next(e for e in out["events"] if e["type"] == "cold_snap")
+    assert cs["duration_days"] == 3 and cs["peak_value"] == -12.0
+
+
+def test_dry_and_wet_spells():
+    dry = detect_events(_seq("2002-01-01", [{"prcp": 0.0}] * 21))
+    assert dry["counts_by_type"]["dry_spell"] == 1
+    assert next(e for e in dry["events"] if e["type"] == "dry_spell")["duration_days"] == 21
+    wet = detect_events(_seq("2003-04-01", [{"prcp": 5.0}] * 5))
+    we = next(e for e in wet["events"] if e["type"] == "wet_spell")
+    assert we["duration_days"] == 5 and we["peak_value"] == 25.0  # total mm
+
+
+def test_heavy_rain_and_snow_are_per_day():
+    out = detect_events(_seq("2004-07-01", [{"prcp": 60.0}, {"snow": 120.0}]))
+    assert out["counts_by_type"]["heavy_rain"] == 1
+    assert out["counts_by_type"]["heavy_snow"] == 1
+    hr = next(e for e in out["events"] if e["type"] == "heavy_rain")
+    assert hr["duration_days"] == 1 and hr["peak_value"] == 60.0
+
+
+def test_missing_values_dont_count():
+    # None prcp must not register as a dry day
+    out = detect_events(_seq("2005-01-01", [{"prcp": None}] * 30))
+    assert out["event_count"] == 0
+
+
+def test_decadal_frequency_buckets_by_decade():
+    daily = _seq("1995-06-01", [{"tmax": 36.0}] * 3) + _seq("2005-06-01", [{"tmax": 36.0}] * 3)
+    out = detect_events(daily)
+    assert out["decadal_frequency"]["heat_wave"] == {"1990s": 1, "2000s": 1}
+
+
+def test_config_from_params_coerces_and_ignores_blanks():
+    cfg = ExtremeConfig.from_params({"heat_wave_tmax_c": "38", "heat_wave_min_days": 2,
+                                     "cold_snap_tmin_c": None, "heavy_rain_mm": ""})
+    assert cfg.heat_wave_tmax_c == 38.0 and cfg.heat_wave_min_days == 2
+    assert cfg.cold_snap_tmin_c == -10.0 and cfg.heavy_rain_mm == 50.0  # defaults kept
+
+
+def test_custom_threshold_changes_detection():
+    daily = _seq("2006-06-01", [{"tmax": 33.0}] * 3)
+    assert detect_events(daily)["event_count"] == 0                  # default 35 -> none
+    out = detect_events(daily, ExtremeConfig(heat_wave_tmax_c=32.0))  # lower bar -> 1
+    assert out["counts_by_type"]["heat_wave"] == 1
+
+
+# ---- handler (download/parse seam mocked) ---------------------------------
+
+_DAILY = (_seq("2010-06-01", [{"tmax": 37.0}] * 4)
+          + _seq("2010-08-01", [{"prcp": 70.0}]))
+
+
+def test_handler_returns_changeset_and_summary(monkeypatch):
+    monkeypatch.setattr(eh, "download_station_csv", lambda sid, **k: "/tmp/x.csv")
+    monkeypatch.setattr(eh, "parse_ghcn_csv", lambda path, s, e: list(_DAILY))
+    out = eh.handle_detect_station_extremes({
+        "station_id": "USW00094728", "station_name": "NYC", "start_year": 2010, "end_year": 2011,
+    })
+    assert out["station_id"] == "USW00094728"
+    assert out["event_count"] == 2
+    counts = json.loads(out["counts_by_type"])
+    assert counts["heat_wave"] == 1 and counts["heavy_rain"] == 1
+    events = json.loads(out["events"])
+    assert {e["type"] for e in events} == {"heat_wave", "heavy_rain"}
+    assert "NYC" in out["summary"]
+
+
+def test_handler_thresholds_flow_through(monkeypatch):
+    monkeypatch.setattr(eh, "download_station_csv", lambda sid, **k: "/tmp/x.csv")
+    monkeypatch.setattr(eh, "parse_ghcn_csv", lambda path, s, e:
+                        _seq("2010-06-01", [{"tmax": 33.0}] * 3))
+    # default 35°C -> nothing; a human-supplied lower bar -> a heat wave
+    base = eh.handle_detect_station_extremes({"station_id": "X"})
+    assert base["event_count"] == 0
+    tuned = eh.handle_detect_station_extremes({"station_id": "X", "heat_wave_tmax_c": 32})
+    assert json.loads(tuned["counts_by_type"])["heat_wave"] == 1
+
+
+def test_handler_empty_data(monkeypatch):
+    monkeypatch.setattr(eh, "download_station_csv", lambda sid, **k: "/tmp/x.csv")
+    monkeypatch.setattr(eh, "parse_ghcn_csv", lambda path, s, e: [])
+    out = eh.handle_detect_station_extremes({"station_id": "X", "start_year": 2000, "end_year": 2001})
+    assert out["event_count"] == 0 and "No data" in out["summary"]
+
+
+def test_handler_requires_station_id():
+    with pytest.raises(ValueError):
+        eh.handle_detect_station_extremes({})
+
+
+def test_dispatch_and_registration():
+    from unittest.mock import MagicMock
+    assert set(eh._DISPATCH) == {"weather.Extremes.DetectStationExtremes"}
+    runner = MagicMock()
+    eh.register_handlers(runner)
+    assert runner.register_handler.call_args.kwargs["facet_name"] == "weather.Extremes.DetectStationExtremes"

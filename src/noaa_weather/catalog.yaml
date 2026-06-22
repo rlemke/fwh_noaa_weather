@@ -39,6 +39,30 @@ workflows:
       start_year: Int
       end_year: Int
 
+  - qualified_name: weather.workflows.DetectStationExtremeEvents
+    summary: >-
+      Find the extreme weather events in one GHCN-Daily station's record — heat
+      waves, cold snaps, wet & dry spells, and heavy rain/snow days — with each
+      event's span, intensity, and per-decade frequency. The entry point for
+      "show the heat waves / droughts / extreme events for <station>". Every
+      threshold has a standard default; supply only station_id to start.
+    tags: [climate, extremes, heat-wave, drought, cold-snap, single-station, ghcn, events]
+    entry_point: true
+    param_schema:
+      station_id: String
+      station_name: String
+      start_year: Int
+      end_year: Int
+      heat_wave_tmax_c: Double
+      heat_wave_min_days: Int
+      cold_snap_tmin_c: Double
+      cold_snap_min_days: Int
+      heavy_rain_mm: Double
+      wet_day_mm: Double
+      wet_spell_min_days: Int
+      dry_spell_min_days: Int
+      heavy_snow_mm: Double
+
   - qualified_name: weather.workflows.AnalyzeStateTrends
     summary: >-
       Analyze climate trends for one state/region: discover GHCN stations, fan
@@ -234,6 +258,19 @@ facets:
       temp, total precip, hot/frost/precip days) from its cached CSV
       (downloading if needed).
     signature: "AnalyzeStationMonthly(station_id: String, station_name: String = \"\", state: String = \"\", start_year: Int = 1950, end_year: Int = 2026) => (monthly_rows: Json, months_analyzed: Int, station_id: String)"
+    effect: external
+    cost: moderate
+
+  # --- weather.Extremes : extreme-event detection ----------------------------
+  - qualified_name: weather.Extremes.DetectStationExtremes
+    namespace: weather.Extremes
+    purpose: >-
+      Detect discrete extreme weather events for one station — heat waves, cold
+      snaps, wet & dry spells, heavy rain & snow days — returning the event
+      catalog (type, span, duration, peak value), per-type counts, and per-decade
+      frequency. Beyond linear trends; every threshold is defaulted to a common
+      climatological convention.
+    signature: "DetectStationExtremes(station_id: String, station_name: String = \"\", start_year: Int = 1944, end_year: Int = 2026, heat_wave_tmax_c: Double = 35.0, heat_wave_min_days: Int = 3, cold_snap_tmin_c: Double = -10.0, cold_snap_min_days: Int = 3, heavy_rain_mm: Double = 50.0, wet_day_mm: Double = 1.0, wet_spell_min_days: Int = 5, dry_spell_min_days: Int = 21, heavy_snow_mm: Double = 100.0) => (events: Json, event_count: Int, counts_by_type: Json, decadal_frequency: Json, summary: String, station_id: String)"
     effect: external
     cost: moderate
 
