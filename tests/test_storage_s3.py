@@ -49,3 +49,22 @@ def test_local_round_trip(tmp_path):
     p = str(tmp_path / "sub" / "a.txt")
     s.write_text_atomic(p, "hello")
     assert s.exists(p) and s.read_text(p) == "hello" and s.size(p) == 5
+
+
+def test_local_staging_is_truly_local_even_with_s3_data_root(monkeypatch, tmp_path):
+    # AFL_DATA_ROOT=s3 must NOT poison local staging (downloads stage to disk).
+    monkeypatch.setenv("AFL_DATA_ROOT", "s3://afl-cache")
+    monkeypatch.setenv("AFL_LOCAL_SCRATCH", str(tmp_path))
+    d = st.local_staging_subdir("noaa-weather/station-csv")
+    assert d.startswith(str(tmp_path)) and "://" not in d
+    assert st.local_scratch_root() == str(tmp_path)
+
+
+def test_localize_identity_for_local():
+    assert st.get_storage("local").localize("/var/data/x.csv") == "/var/data/x.csv"
+
+
+def test_localized_path_mapping(monkeypatch, tmp_path):
+    monkeypatch.setenv("AFL_LOCAL_SCRATCH", str(tmp_path))
+    lp = st._localized_path("s3://afl-cache/cache/noaa-weather/station-csv/USW1.csv")
+    assert lp == str(tmp_path / "localized" / "afl-cache/cache/noaa-weather/station-csv/USW1.csv")

@@ -118,6 +118,18 @@ class Storage(abc.ABC):
         the new one, not a half-copied state.
         """
 
+    @abc.abstractmethod
+    def localize(self, path: str) -> str:
+        """Return a LOCAL filesystem path for reading ``path``.
+
+        For local backends this is ``path`` itself. For remote backends
+        (s3 / hdfs) it downloads ``path`` into a local read-through cache
+        (``local_scratch_root()/localized/…``) and returns that path, so
+        readers that need a real file handle (csv/osmium/etc.) work
+        regardless of where the durable artifact lives. Cached: a second
+        read of the same artifact with a matching size skips re-download.
+        """
+
     @property
     @abc.abstractmethod
     def supports_locking(self) -> bool: ...
@@ -280,6 +292,9 @@ class LocalStorage(Storage):
             raise
         shutil.rmtree(local_dir, ignore_errors=True)
 
+    def localize(self, path: str) -> str:
+        return path  # already a local filesystem path
+
 
 class HdfsStorage(Storage):
     name = "hdfs"
@@ -380,6 +395,22 @@ class HdfsStorage(Storage):
             raise
         os.unlink(local_path)
 
+    def localize(self, path: str) -> str:
+        lp = _localized_path(path)
+        try:
+            if os.path.exists(lp) and os.path.getsize(lp) == self.size(path):
+                return lp
+        except Exception:  # noqa: BLE001 - size probe best-effort
+            pass
+        os.makedirs(os.path.dirname(lp), exist_ok=True)
+        with self._backend.open(path, "rb") as src, open(lp, "wb") as dst:
+            while True:
+                chunk = src.read(1024 * 1024)
+                if not chunk:
+                    break
+                dst.write(chunk)
+        return lp
+
 
 class S3Storage(Storage):
     """S3 / MinIO backend — delegates to ``facetwork.runtime.storage`` (the same
@@ -468,7 +499,30 @@ class S3Storage(Storage):
 
     def finalize_from_local(self, local_path: str, dst_path: str) -> None:
         self._stream_copy(lambda: open(local_path, "rb"), dst_path)
+        # Warm the local read-through cache from the file we already have on
+        # disk, so the next localize(dst_path) is a no-op instead of a download.
+        lp = _localized_path(dst_path)
+        os.makedirs(os.path.dirname(lp), exist_ok=True)
+        shutil.copyfile(local_path, lp)
         os.unlink(local_path)
+
+    def localize(self, path: str) -> str:
+        if "://" not in path:
+            return path  # already local
+        lp = _localized_path(path)
+        try:
+            if os.path.exists(lp) and os.path.getsize(lp) == self.size(path):
+                return lp
+        except Exception:  # noqa: BLE001 - size probe best-effort
+            pass
+        os.makedirs(os.path.dirname(lp), exist_ok=True)
+        with self._backend.open(path, "rb") as src, open(lp, "wb") as dst:
+            while True:
+                chunk = src.read(1024 * 1024)
+                if not chunk:
+                    break
+                dst.write(chunk)
+        return lp
 
     def finalize_dir_from_local(self, local_dir: str, dst_dir: str) -> None:
         for root, _dirs, files in os.walk(local_dir):
@@ -561,13 +615,31 @@ def locks_root(backend: str | None = None) -> str:
 # before finalizing into (possibly remote) cache backends.
 # ---------------------------------------------------------------------------
 
-def local_staging_subdir(subdir: str) -> str:
-    """Return a local-disk staging directory named ``subdir``.
+def local_scratch_root() -> str:
+    """A guaranteed-LOCAL scratch root (never s3/hdfs).
 
-    Always returns a POSIX path under ``staging_root('local')``, regardless
-    of which backend is active, because downloads must stream to local disk
-    before being finalized onto HDFS. Honors ``AFL_STAGING_ROOT`` if set.
+    ``AFL_DATA_ROOT`` may point at an object store (``s3://…``), which poisons
+    the derived ``staging_root``/``tmp_root`` for EVERY backend — so they can't
+    be trusted for the local-disk staging that downloads + read-through caches
+    require. ``AFL_LOCAL_SCRATCH`` is the explicit local scratch dir
+    (``.env``/fleet set it); fall back to a temp dir.
     """
-    path = Storage.join(staging_root("local"), subdir)
+    return os.environ.get("AFL_LOCAL_SCRATCH") or os.path.join(
+        tempfile.gettempdir(), "afl-scratch"
+    )
+
+
+def local_staging_subdir(subdir: str) -> str:
+    """Return a local-disk staging directory named ``subdir`` under
+    ``local_scratch_root()`` — always local, so a stage-then-finalize download
+    writes to disk before being finalized onto a (possibly remote) backend.
+    """
+    path = os.path.join(local_scratch_root(), "staging", subdir)
     os.makedirs(path, exist_ok=True)
     return path
+
+
+def _localized_path(remote_path: str) -> str:
+    """Deterministic local read-cache location mirroring a remote path's key."""
+    key = remote_path.split("://", 1)[1] if "://" in remote_path else remote_path
+    return os.path.join(local_scratch_root(), "localized", key.lstrip("/"))

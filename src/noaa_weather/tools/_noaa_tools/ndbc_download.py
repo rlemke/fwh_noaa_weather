@@ -32,7 +32,7 @@ if str(_TOOLS_ROOT) not in sys.path:
     sys.path.insert(0, str(_TOOLS_ROOT))
 
 from . import ndbc_mocks, ndbc_parse, sidecar  # noqa: E402
-from .storage import LocalStorage, Storage, local_staging_subdir  # noqa: E402
+from .storage import Storage, get_storage, local_staging_subdir  # noqa: E402
 
 try:
     import requests
@@ -102,7 +102,7 @@ def download_catalog(
     JSON is derived at download time so downstream tools can skip
     the XML parse.
     """
-    s = storage or LocalStorage()
+    s = storage or get_storage()
     xml_abs = sidecar.cache_path(
         NAMESPACE, CATALOG_CACHE_TYPE, CATALOG_XML_RELATIVE, s
     )
@@ -134,8 +134,8 @@ def download_catalog(
                         station_count,
                     )
                     return CatalogResult(
-                        xml_path=xml_abs,
-                        json_path=json_abs,
+                        xml_path=s.localize(xml_abs),
+                        json_path=s.localize(json_abs),
                         station_count=station_count,
                         source_url=CATALOG_URL,
                         was_cached=True,
@@ -231,8 +231,8 @@ def download_catalog(
             )
 
         return CatalogResult(
-            xml_path=xml_abs,
-            json_path=json_abs,
+            xml_path=s.localize(xml_abs),
+            json_path=s.localize(json_abs),
             station_count=len(stations),
             source_url=CATALOG_URL,
             was_cached=False,
@@ -280,7 +280,7 @@ def download_stdmet(
     """Download one station-year of stdmet records."""
     relative_path = stdmet_relative_path(station_id, year)
     source_url = STDMET_URL_TEMPLATE.format(station_id=station_id, year=year)
-    s = storage or LocalStorage()
+    s = storage or get_storage()
     art_path = sidecar.cache_path(NAMESPACE, STDMET_CACHE_TYPE, relative_path, s)
 
     with _lock:
@@ -298,7 +298,7 @@ def download_stdmet(
             return StdmetResult(
                 station_id=station_id,
                 year=year,
-                absolute_path=art_path,
+                absolute_path=s.localize(art_path),
                 relative_path=relative_path,
                 size_bytes=side.get("size_bytes", 0),
                 sha256=side.get("sha256", ""),
@@ -375,7 +375,7 @@ def download_stdmet(
         return StdmetResult(
             station_id=station_id,
             year=year,
-            absolute_path=art_path,
+            absolute_path=s.localize(art_path),
             relative_path=relative_path,
             size_bytes=len(body_bytes),
             sha256=hashlib.sha256(body_bytes).hexdigest(),

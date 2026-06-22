@@ -28,7 +28,7 @@ from ..shared.ghcn_utils import (  # noqa: F401
 # The shim handles the sys.path gymnastics already; these imports are
 # plain once it's loaded.
 from _noaa_tools import sidecar  # noqa: E402
-from _noaa_tools.storage import LocalStorage  # noqa: E402
+from _noaa_tools.storage import get_storage, local_staging_subdir  # noqa: E402
 
 logger = logging.getLogger("weather.marine")
 NAMESPACE = "weather.Marine"
@@ -244,7 +244,7 @@ def handle_summarize_buoy(params: dict[str, Any]) -> dict[str, Any]:
     if not station_id:
         raise ValueError("station_id is required")
 
-    storage = LocalStorage()
+    storage = get_storage()
     stdmet_root = Path(sidecar.cache_dir(
         "noaa-weather", ndbc_download.STDMET_CACHE_TYPE, storage
     )) / station_id
@@ -309,19 +309,19 @@ def handle_summarize_buoy(params: dict[str, Any]) -> dict[str, Any]:
         "summaries": summaries,
     }
     body = (json.dumps(output, indent=2, sort_keys=True) + "\n").encode("utf-8")
-    staging_dir = sidecar.staging_dir("noaa-weather", BUOY_SUMMARY_CACHE_TYPE, storage)
+    staging_dir = local_staging_subdir(f"noaa-weather/{BUOY_SUMMARY_CACHE_TYPE}")
     os.makedirs(staging_dir, exist_ok=True)
     stage_path = os.path.join(staging_dir, f"{station_id}.json.stage-{os.getpid()}")
     with open(stage_path, "wb") as f:
         f.write(body)
 
-    final_path = Path(sidecar.cache_path(
+    final_path = sidecar.cache_path(
         "noaa-weather", BUOY_SUMMARY_CACHE_TYPE, relative_path, storage
-    ))
+    )
     with sidecar.entry_lock(
         "noaa-weather", BUOY_SUMMARY_CACHE_TYPE, relative_path, storage=storage
     ):
-        storage.finalize_from_local(stage_path, str(final_path))
+        storage.finalize_from_local(stage_path, final_path)
         sidecar.write_sidecar(
             "noaa-weather",
             BUOY_SUMMARY_CACHE_TYPE,
@@ -366,7 +366,7 @@ def handle_build_buoys_map(params: dict[str, Any]) -> dict[str, Any]:
         _step_log(step_log, "no cached NDBC catalog — map skipped", "warning")
         return {"html_path": "", "station_count": 0}
     # Crude station count — re-read the catalog sidecar.
-    storage = LocalStorage()
+    storage = get_storage()
     side = sidecar.read_sidecar(
         "noaa-weather", ndbc_download.CATALOG_CACHE_TYPE,
         ndbc_download.CATALOG_JSON_RELATIVE, storage,

@@ -42,7 +42,7 @@ if str(_TOOLS_ROOT) not in sys.path:
     sys.path.insert(0, str(_TOOLS_ROOT))
 
 from . import ghcn_mocks, sidecar  # noqa: E402
-from .storage import LocalStorage, Storage, local_staging_subdir  # noqa: E402
+from .storage import Storage, get_storage, local_staging_subdir  # noqa: E402
 
 try:
     import requests
@@ -127,7 +127,7 @@ def download_catalog_file(
     remote_name = CATALOG_FILES[kind]
     source_url = GHCN_S3_BASE + remote_name
 
-    s = storage or LocalStorage()
+    s = storage or get_storage()
     art_path = sidecar.cache_path(NAMESPACE, CATALOG_CACHE_TYPE, relative_path, s)
 
     with _path_lock(art_path):
@@ -146,7 +146,7 @@ def download_catalog_file(
                     return DownloadResult(
                         cache_type=CATALOG_CACHE_TYPE,
                         relative_path=relative_path,
-                        absolute_path=art_path,
+                        absolute_path=s.localize(art_path),
                         size_bytes=side.get("size_bytes", 0),
                         sha256=side.get("sha256", ""),
                         source_url=source_url,
@@ -248,7 +248,7 @@ def _write_catalog(
     return DownloadResult(
         cache_type=CATALOG_CACHE_TYPE,
         relative_path=relative_path,
-        absolute_path=final_path,
+        absolute_path=storage.localize(final_path),
         size_bytes=size_bytes,
         sha256=digest,
         source_url=source_url,
@@ -285,7 +285,7 @@ def download_station_csv(
     relative_path = f"{station_id}.csv"
     source_url = f"{GHCN_S3_BASE}csv/by_station/{station_id}.csv"
 
-    s = storage or LocalStorage()
+    s = storage or get_storage()
     art_path = sidecar.cache_path(NAMESPACE, STATION_CSV_CACHE_TYPE, relative_path, s)
 
     with _path_lock(art_path):
@@ -300,7 +300,7 @@ def download_station_csv(
             return DownloadResult(
                 cache_type=STATION_CSV_CACHE_TYPE,
                 relative_path=relative_path,
-                absolute_path=art_path,
+                absolute_path=s.localize(art_path),
                 size_bytes=side.get("size_bytes", 0),
                 sha256=side.get("sha256", ""),
                 source_url=source_url,
@@ -397,7 +397,7 @@ def download_station_csv(
         return DownloadResult(
             cache_type=STATION_CSV_CACHE_TYPE,
             relative_path=relative_path,
-            absolute_path=final_path,
+            absolute_path=s.localize(final_path),
             size_bytes=bytes_written,
             sha256=h.hexdigest(),
             source_url=source_url,
@@ -454,7 +454,7 @@ def _write_station_csv(
     return DownloadResult(
         cache_type=STATION_CSV_CACHE_TYPE,
         relative_path=relative_path,
-        absolute_path=final_path,
+        absolute_path=storage.localize(final_path),
         size_bytes=size_bytes,
         sha256=digest,
         source_url=source_url,
