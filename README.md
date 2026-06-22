@@ -9,6 +9,7 @@ providing FFL workflows and handlers for working with NOAA climate data:
 - **Climate analysis** — yearly state aggregates, multi-decade trends, linear regressions
 - **Reverse geocoding** — Nominatim-backed station-to-place lookup with on-disk cache
 - **Reporting** — per-station HTML reports, choropleth warming maps, batch summaries
+- **Extreme events** — detect heat waves, cold snaps, wet/dry spells and heavy rain/snow days per station or region, with per-decade trends and dependency-free SVG/HTML charts
 
 Discovered by the Facetwork runner via the `facetwork.examples` entry point
 declared in `pyproject.toml`. After `pip install -e .`, Facetwork's
@@ -72,9 +73,10 @@ fwh_noaa_weather/
 ├── scripts/                        # operational scripts (seed-climate-data, …)
 └── src/noaa_weather/
     ├── __init__.py                 # exports `example: ExamplePackage`
-    ├── handlers/                   # 6 event-facet subpackages
+    ├── handlers/                   # 7 event-facet subpackages
     │   ├── analysis/
     │   ├── catalog/
+    │   ├── extremes/               # extreme-event detection + SVG/HTML charts
     │   ├── geocode/
     │   ├── ingest/
     │   ├── marine/
@@ -97,7 +99,14 @@ so the two surfaces share one cache and one implementation.
 
 | Service | Purpose |
 |---------|---------|
-| MongoDB | Facetwork registry + workflow state, plus `weather_reports` / `climate_trends` collections |
+| MongoDB | Facetwork registry + workflow state, plus `weather_reports` / `climate_trends` / extreme-event rollup collections |
+| MinIO / S3 (optional) | Shared durable cache + outputs under `AFL_STORAGE=s3` — lets a multi-server fleet share artifacts with no shared disk |
+
+The cache + outputs backend is chosen by `AFL_STORAGE` (`local` | `hdfs` |
+`s3`) rooted at `AFL_DATA_ROOT`. On `s3`, downloads and durable outputs land in
+shared MinIO/S3 while readers get a real local file via a `localize()`
+read-through cache; scratch/staging always stay on local disk
+(`AFL_LOCAL_SCRATCH`).
 
 The package falls back to deterministic hash-based mocks when `requests`
 isn't installed or NOAA endpoints are unreachable, so unit tests run

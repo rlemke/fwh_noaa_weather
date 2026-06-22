@@ -139,6 +139,60 @@ Cache warmup workflows pre-download GHCN-Daily CSVs without running analysis, us
 | `CacheCanadaData` | 13 Canadian provinces |
 | `CacheEuropeData`, `CacheAfricaData`, `CacheAsiaData`, ... | International regions |
 
+### 9. Extreme-Event Detection and Visualization
+
+Linear trends capture the slow warming signal; the `weather.Extremes`
+namespace surfaces the **discrete extreme events** in a station's record —
+heat waves, cold snaps, wet & dry spells, and heavy rain/snow days — and
+asks whether they are getting more or less frequent over the decades.
+
+Three event facets:
+
+| Namespace | Event Facet | Purpose |
+|-----------|-------------|---------|
+| `weather.Extremes` | `DetectStationExtremes` | One station → per-event catalog (type, start/end, duration, peak value), per-type counts, and per-decade frequency. Persists a per-station rollup to MongoDB. |
+| `weather.Extremes` | `AggregateRegionExtremes` | Reads back a region's per-station rollups → region totals + per-type decadal **trends** (rising/falling). |
+| `weather.Extremes` | `RenderExtremesChart` | Grouped SVG bar chart (per-decade frequency by event type, with trend annotations) + a self-contained HTML page. |
+
+Every detection threshold is a documented, defaulted parameter — to get the
+standard events you only supply `station_id`:
+
+| Parameter | Default | Meaning |
+|-----------|---------|---------|
+| `heat_wave_tmax_c` | 35 | daily high (°C) marking a heat-wave day |
+| `heat_wave_min_days` | 3 | consecutive hot days to qualify |
+| `cold_snap_tmin_c` | -10 | daily low (°C) marking a cold-snap day |
+| `cold_snap_min_days` | 3 | consecutive cold days to qualify |
+| `heavy_rain_mm` | 50 | single-day rainfall counted as heavy |
+| `wet_day_mm` | 1 | rainfall marking a day "wet" for spells |
+| `wet_spell_min_days` | 5 | consecutive wet days to qualify |
+| `dry_spell_min_days` | 21 | consecutive dry days to qualify |
+| `heavy_snow_mm` | 100 | single-day snowfall counted as heavy |
+
+Four workflows compose these facets:
+
+| Workflow | Pipeline |
+|----------|----------|
+| `DetectStationExtremeEvents` | single station → `DetectStationExtremes` |
+| `DetectRegionExtremes` | `DiscoverStations` → foreach `DetectStationExtremes` → `AggregateRegionExtremes` |
+| `VisualizeStationExtremes` | detect → `RenderExtremesChart` → return `html_path` |
+| `VisualizeRegionExtremes` | discover → foreach detect → aggregate → `RenderExtremesChart` → return `html_path` |
+
+`DetectRegionExtremes` reuses the same two-phase **persist + readback**
+pattern as `AnalyzeStationClimate` → `ComputeRegionTrend`: each station's
+detection persists a rollup via `ExtremeEventStore`, and the aggregator reads
+them back by location, gated by `station_count` so it waits for every station
+to finish before computing decadal trends.
+
+The charts are rendered as **dependency-free raw SVG** — no matplotlib (which
+isn't installed in the runners), so the visualize workflows run on a stock
+runner.
+
+```json
+// VisualizeRegionExtremes
+{"country": "US", "state": "TX", "max_stations": 5, "start_year": 1950, "end_year": 2024}
+```
+
 ## Running on the Dashboard
 
 ### 1. Seed and start the runner

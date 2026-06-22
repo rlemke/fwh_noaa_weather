@@ -99,6 +99,17 @@ Every tool supports:
 
 All outputs live at `$AFL_CACHE_ROOT/noaa-weather/` (default: `/Volumes/afl_data/cache/noaa-weather/`):
 
+> **Storage backend.** The cache root resolves against a backend chosen by
+> `AFL_STORAGE` (`local` | `hdfs` | `s3`) rooted at `AFL_DATA_ROOT`. Under
+> `AFL_STORAGE=s3`, durable outputs (extreme-event charts, `BuildBuoysMap`,
+> `warming_map`) and downloads (GHCN catalog + station CSVs, NDBC catalog +
+> stdmet, marine buoy summaries) land in shared MinIO/S3, while readers get a
+> real local file via the `localize()` read-through cache. Scratch and staging
+> always stay on local disk (`AFL_LOCAL_SCRATCH`), so `AFL_DATA_ROOT=s3://…`
+> never poisons in-flight writes. *Not yet migrated:* marine stdmet
+> enumeration over s3 and the local CLI tools; `GenerateClimateReport` still
+> needs matplotlib (absent in runners).
+
 ```
 cache/noaa-weather/
 ├── catalog/
@@ -221,11 +232,13 @@ The real implementation lives in `_noaa_tools/`. Both the CLI tools and the FFL 
 | Module | Role |
 |--------|------|
 | `sidecar.py` | Per-entry `.meta.json` read/write, presence, per-entry locking |
-| `storage.py` | LocalStorage / HdfsStorage abstraction + root-path derivation |
+| `storage.py` | LocalStorage / HdfsStorage / **S3Storage** abstraction (`AFL_STORAGE=local\|hdfs\|s3`) + root-path derivation; `localize()` read-through cache for object-store paths; always-local scratch/staging |
 | `ghcn_download.py` | GHCN catalog + per-station CSV download with sidecar cache |
 | `ghcn_parse.py` | Pure parsers for `ghcnd-stations.txt`, `ghcnd-inventory.txt`, per-station CSVs |
 | `climate_analysis.py` | Pure functions: yearly summaries, monthly summaries, climate normals, anomalies, linear regression, region trend |
 | `climate_charts.py` | matplotlib → SVG renderers: climograph, annual trend, warming stripes, year × month heatmap, anomaly bars (lazy-imported so non-chart callers don't pay the cost) |
+| `extremes.py` | Pure extreme-event detection: heat waves, cold snaps, wet & dry spells, heavy rain/snow days; per-event catalog, per-type counts, per-decade frequency (no I/O) |
+| `extremes_chart.py` | Dependency-free **raw SVG** renderer for extreme-event charts (grouped per-decade bar chart + trend annotations) + self-contained HTML — no matplotlib (absent in runners) |
 | `geofabrik_regions.py` | Geofabrik `index-v1.json` fetcher + region-path → bbox lookup |
 | `geocode_nominatim.py` | OSM Nominatim client with rate limiting + sidecar cache |
 | `ghcn_mocks.py` | Deterministic mock fallbacks for offline mode |
@@ -263,5 +276,6 @@ Every CLI tool has a matching FFL event facet in `../ffl/weather.ffl`:
 | `climate-report` (single region) | `weather.Report.GenerateClimateReport` |
 | `climate-report --all-under` (multi-region) | `weather.Report.ListRegionsUnder` + `weather.workflows.GenerateRegionGroupReport` |
 | `reverse-geocode` | `weather.Geocode.ReverseGeocode` |
+| *(no CLI yet)* | `weather.Extremes.DetectStationExtremes`, `AggregateRegionExtremes`, `RenderExtremesChart` — extreme-event detection + charts; driven from the `Detect*`/`Visualize*Extremes` workflows. Detection lib: `_noaa_tools/extremes.py`; chart lib: `_noaa_tools/extremes_chart.py` |
 
 The `GenerateRegionGroupReport` workflow uses `ListRegionsUnder` + `andThen foreach` so the FFL runtime can fan out a Canada-plus-all-provinces batch across the distributed runner fleet — same cache, same code path as the CLI.
