@@ -266,6 +266,22 @@ def test_render_handler_writes_files(tmp_path, monkeypatch):
     assert "NYC extremes" in html and "<rect" in html and "rising" in html
 
 
+def test_render_handler_uploads_to_s3(monkeypatch):
+    # when the cache root is s3:// (AFL_STORAGE=s3 in the fleet), upload via boto3
+    puts = []
+    monkeypatch.setattr(eh, "LocalStorage", lambda: object())
+    monkeypatch.setattr(eh.sidecar, "cache_path",
+                        lambda ns, ct, rel, storage: "s3://afl-cache/cache/noaa-weather/extremes-viz/NY")
+    monkeypatch.setattr(eh, "_put_s3", lambda b, k, body, ct: puts.append((b, k, ct)))
+    out = eh.handle_render_extremes_chart({
+        "title": "T", "label": "NY",
+        "counts_by_type": {"heat_wave": 1}, "decadal_frequency": {"heat_wave": {"2000s": 1}}})
+    assert out["html_path"] == "s3://afl-cache/cache/noaa-weather/extremes-viz/NY/extremes.html"
+    assert out["svg_path"] == "s3://afl-cache/cache/noaa-weather/extremes-viz/NY/extremes.svg"
+    assert ("afl-cache", "cache/noaa-weather/extremes-viz/NY/extremes.svg", "image/svg+xml") in puts
+    assert ("afl-cache", "cache/noaa-weather/extremes-viz/NY/extremes.html", "text/html") in puts
+
+
 def test_render_handler_coerces_dict_inputs(tmp_path, monkeypatch):
     # FFL may hand the Json params through already-parsed (dict), not as a string
     monkeypatch.setattr(eh, "LocalStorage", lambda: object())

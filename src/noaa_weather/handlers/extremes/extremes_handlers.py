@@ -33,6 +33,20 @@ from noaa_weather.tools._noaa_tools.storage import LocalStorage
 _VIZ_CACHE_TYPE = "extremes-viz"
 
 
+def _put_s3(bucket: str, key: str, body: bytes, content_type: str) -> None:
+    """Upload bytes to the fleet's S3/MinIO (AFL_S3_ENDPOINT + creds). noaa's
+    _noaa_tools.storage has no s3 writer, so we use boto3 directly — the runners
+    already ship it for the platform's s3 cache."""
+    import boto3
+    boto3.client(
+        "s3",
+        endpoint_url=os.environ.get("AFL_S3_ENDPOINT"),
+        aws_access_key_id=os.environ.get("AFL_S3_ACCESS_KEY"),
+        aws_secret_access_key=os.environ.get("AFL_S3_SECRET_KEY"),
+        region_name=os.environ.get("AFL_S3_REGION", "us-east-1"),
+    ).put_object(Bucket=bucket, Key=key, Body=body, ContentType=content_type)
+
+
 def _coerce_json(v: Any, default):
     """Accept a JSON string or an already-parsed value (FFL passes Json as str)."""
     if v is None or v == "":
@@ -180,21 +194,29 @@ def handle_render_extremes_chart(params: dict[str, Any]) -> dict[str, Any]:
                                         counts_by_type=counts_by_type, trends=trends,
                                         summary=summary)
 
-    storage = LocalStorage()
     slug = re.sub(r"[^A-Za-z0-9]+", "_", (label or title)).strip("_") or "extremes"
-    out_dir = sidecar.cache_path("noaa-weather", _VIZ_CACHE_TYPE, slug, storage)
-    os.makedirs(out_dir, exist_ok=True)
+    out_dir = sidecar.cache_path("noaa-weather", _VIZ_CACHE_TYPE, slug, LocalStorage())
+    _CONTENT_TYPE = {"svg": "image/svg+xml", "html": "text/html"}
 
     def _write(name: str, text: str, kind: str) -> str:
+        body = text.encode("utf-8")
+        # The cache root may be s3:// (AFL_STORAGE=s3 in the fleet). os.makedirs/
+        # open can't handle that — upload to MinIO/S3 via boto3 and return the
+        # portable s3:// URI; only fall back to a local file when the root is local.
+        if out_dir.startswith("s3://"):
+            bucket, _, prefix = out_dir[len("s3://"):].partition("/")
+            key = f"{prefix.rstrip('/')}/{name}"
+            _put_s3(bucket, key, body, _CONTENT_TYPE.get(kind, "application/octet-stream"))
+            return f"s3://{bucket}/{key}"
+        os.makedirs(out_dir, exist_ok=True)
         path = os.path.join(out_dir, name)
         with open(path, "w", encoding="utf-8") as f:
             f.write(text)
-        body = text.encode("utf-8")
         sidecar.write_sidecar("noaa-weather", _VIZ_CACHE_TYPE, f"{slug}/{name}",
                               kind="file", size_bytes=len(body),
                               sha256=hashlib.sha256(body).hexdigest(),
                               tool={"name": "extremes_chart", "version": "1.0"},
-                              extra={"content_kind": kind, "label": label}, storage=storage)
+                              extra={"content_kind": kind, "label": label}, storage=LocalStorage())
         return path
 
     svg_path = _write("extremes.svg", svg, "svg")
