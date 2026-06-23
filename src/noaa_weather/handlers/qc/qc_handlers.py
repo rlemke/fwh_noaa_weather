@@ -103,6 +103,10 @@ def handle_summarize_quality_flags(params: dict[str, Any]) -> dict[str, Any]:
 
     csv_path = download_station_csv(station_id)
     summary = summarize_quality_flags(csv_path, start_year, end_year)
+    # Make the summary self-describing so a downstream RenderQCChart can title
+    # the chart with the station's name/location, not just the bare ID.
+    summary["station_id"] = station_id
+    summary["station_name"] = station_name
     narrative = _headline(summary, station_id)
 
     # Best-effort persist a per-station rollup so AggregateRegionQC can read it
@@ -218,9 +222,25 @@ def handle_render_qc_chart(params: dict[str, Any]) -> dict[str, Any]:
     it lands in durable storage on any backend) and returns their paths.
     """
     summary = _coerce_json(params.get("summary_json"), {})
-    title = params.get("title") or "Data quality"
-    label = params.get("label") or ""
     step_log = params.get("_step_log")
+
+    # Title/label the chart by the most human subject available in the summary —
+    # the station's NAME (its location), else the region, else the bare ID — so
+    # the output identifies WHERE the data is from, not just a station code.
+    # The passed title/label are only fallbacks when the summary lacks identity.
+    sid = summary.get("station_id", "")
+    sname = summary.get("station_name", "")
+    region = summary.get("region", "")
+    subject = sname or region or sid
+    if subject:
+        if sname and sid and sname != sid:
+            title = f"Data quality: {sname} ({sid})"
+        else:
+            title = f"Data quality: {subject}"
+        label = subject
+    else:
+        title = params.get("title") or "Data quality"
+        label = params.get("label") or ""
 
     by_element = summary.get("by_element", {})
     by_flag = summary.get("by_flag", {})
@@ -237,7 +257,9 @@ def handle_render_qc_chart(params: dict[str, Any]) -> dict[str, Any]:
                             worst_stations=worst_stations, summary=narrative)
 
     storage = get_storage()
-    slug = re.sub(r"[^A-Za-z0-9]+", "_", (label or title)).strip("_") or "qc"
+    # Key the output PATH on the stable id (station_id / region), not the display
+    # name — so the artifact URL stays constant even as the title shows the name.
+    slug = re.sub(r"[^A-Za-z0-9]+", "_", (sid or region or label or title)).strip("_") or "qc"
     out_dir = sidecar.cache_path("noaa-weather", _VIZ_CACHE_TYPE, slug, storage)
 
     def _write(name: str, text: str, kind: str) -> str:

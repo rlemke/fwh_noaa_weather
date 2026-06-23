@@ -236,3 +236,27 @@ def test_html_embeds_chart_flag_table_and_worst_stations():
     assert "failed internal consistency check" in html  # flag table
     assert "USX" in html and "BERG" in html              # worst-stations table
     assert "Worst stations" in html
+
+
+def test_chart_title_prefers_station_name_but_path_keys_on_id(tmp_path):
+    """The chart titles by the human name/location; the artifact path stays
+    keyed on the stable station_id so its URL doesn't move."""
+    import os, json, re
+    os.environ['AFL_STORAGE'] = 'local'
+    os.environ['AFL_DATA_ROOT'] = str(tmp_path)
+    from noaa_weather.handlers.qc.qc_handlers import handle_render_qc_chart
+
+    summ = {"station_id": "USW00094728", "station_name": "NY CITY CENTRAL PARK",
+            "total_obs": 1000, "flagged_pct": 0.5,
+            "by_element": {"TMIN": {"total": 100, "flagged": 5, "pct": 5.0}},
+            "by_flag": {}}
+    r = handle_render_qc_chart({"summary_json": json.dumps(summ)})
+    html = open(r["html_path"]).read()
+    assert "NY CITY CENTRAL PARK (USW00094728)" in re.search(r"<title>(.*?)</title>", html).group(1)
+    assert "/qc-viz/USW00094728/" in r["html_path"]  # path keyed on id, not name
+
+    # No name → graceful fallback to the id in both title and path.
+    r2 = handle_render_qc_chart({"summary_json": json.dumps({**summ, "station_name": ""})})
+    html2 = open(r2["html_path"]).read()
+    assert "Data quality: USW00094728" in re.search(r"<title>(.*?)</title>", html2).group(1)
+    assert "/qc-viz/USW00094728/" in r2["html_path"]
