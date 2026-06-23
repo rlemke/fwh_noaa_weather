@@ -36,7 +36,7 @@ from _noaa_tools.climate_report import (  # noqa: E402
     generate_climate_report,
     rebuild_report_derived_pages,
 )
-from _noaa_tools.storage import LocalStorage  # noqa: E402
+from _noaa_tools.storage import get_storage  # noqa: E402
 
 
 def _parse_baseline(s: str) -> tuple[int, int]:
@@ -263,7 +263,7 @@ def main() -> int:
     # --- Post-batch: rebuild derived pages once, print summary --------------
     if is_batch:
         try:
-            rebuild_report_derived_pages(storage=LocalStorage())
+            rebuild_report_derived_pages(storage=get_storage())
         except Exception as exc:  # pragma: no cover — defensive
             print(
                 f"warning: master index / warming map regen failed: {exc}",

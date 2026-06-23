@@ -38,7 +38,7 @@ if str(_TOOLS_ROOT) not in sys.path:
     sys.path.insert(0, str(_TOOLS_ROOT))
 
 from . import sidecar  # noqa: E402
-from .storage import LocalStorage, Storage, local_staging_subdir  # noqa: E402
+from .storage import Storage, get_storage, local_staging_subdir  # noqa: E402
 
 try:
     import requests
@@ -281,7 +281,7 @@ def _load_index(
         if not force and _cached_index is not None:
             return _cached_index
 
-        s = storage or LocalStorage()
+        s = storage or get_storage()
         should_mock = _resolve_use_mock(use_mock)
 
         art_path = sidecar.cache_path(NAMESPACE, CACHE_TYPE, INDEX_RELATIVE_PATH, s)
@@ -298,7 +298,8 @@ def _load_index(
                     "Geofabrik index cache hit (%.1fh old)",
                     age if age is not None else -1.0,
                 )
-                with open(art_path, "r", encoding="utf-8") as f:
+                # localize: s3:// -> a real local file for open(); local -> itself.
+                with open(s.localize(art_path), "r", encoding="utf-8") as f:
                     raw = json.load(f)
                 _cached_index = _build_index(raw)
                 return _cached_index

@@ -50,7 +50,7 @@ from . import (  # noqa: E402
     warming_map,
     warming_time_map,
 )
-from .storage import LocalStorage, get_storage, local_staging_subdir  # noqa: E402
+from .storage import get_storage, local_staging_subdir  # noqa: E402
 
 logger = logging.getLogger("noaa-weather.report")
 
@@ -75,7 +75,7 @@ def rebuild_report_derived_pages(storage: "Storage | None" = None) -> None:
     and swallowed so a flaky side effect never sinks a successful
     regional report.
     """
-    s = storage or LocalStorage()
+    s = storage or get_storage()
     try:
         index_path = report_index.rebuild_index(storage=s)
         if index_path is not None:

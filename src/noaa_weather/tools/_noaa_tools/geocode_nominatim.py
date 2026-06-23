@@ -26,7 +26,7 @@ if str(_TOOLS_ROOT) not in sys.path:
     sys.path.insert(0, str(_TOOLS_ROOT))
 
 from . import ghcn_mocks, sidecar  # noqa: E402
-from .storage import LocalStorage, Storage  # noqa: E402
+from .storage import Storage, get_storage  # noqa: E402
 
 try:
     import requests
@@ -68,7 +68,7 @@ def reverse_geocode(
     """
     key = _cache_key(lat, lon)
     relative_path = f"{key}.json"
-    s = storage or LocalStorage()
+    s = storage or get_storage()
 
     if not force:
         cached = _read_cached(relative_path, s)
@@ -118,7 +118,8 @@ def _read_cached(relative_path: str, storage: Storage) -> dict[str, Any] | None:
         return None
     art_path = sidecar.cache_path(NAMESPACE, CACHE_TYPE, relative_path, storage)
     try:
-        with open(art_path, "r", encoding="utf-8") as f:
+        # localize: s3:// -> a real local file for open(); local -> itself.
+        with open(storage.localize(art_path), "r", encoding="utf-8") as f:
             return json.load(f)
     except (OSError, json.JSONDecodeError) as exc:
         logger.warning("Corrupt geocode cache %s: %s", art_path, exc)
