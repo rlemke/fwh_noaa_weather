@@ -110,9 +110,11 @@ Under `AFL_STORAGE=s3`, durable outputs (extreme-event charts, `BuildBuoysMap`,
 `ndbc_download` buoy catalog + stdmet, marine `SummarizeBuoy` persist) land in
 shared MinIO, while readers get a real local file via `localize`.
 
-**Known limitations:** marine `SummarizeBuoy` stdmet *enumeration* over s3 and
-the local CLI tools are not yet migrated to the s3 backend; `GenerateClimateReport`
-still needs matplotlib (absent in the runners).
+**Known limitations:** none outstanding for s3 — the marine `SummarizeBuoy` read
+path and the analysis/discovery CLIs are migrated, and `GenerateClimateReport`'s
+charts are now dependency-free raw SVG (no matplotlib), so the full report runs in
+the runners. (`climate_report.py`'s own CLI storage is the last `LocalStorage()`
+holdout, a dev-tool follow-up.)
 
 ### Handler subpackages
 

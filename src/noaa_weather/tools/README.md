@@ -239,7 +239,7 @@ The real implementation lives in `_noaa_tools/`. Both the CLI tools and the FFL 
 | `ghcn_qc.py` | Pure Q-flag counter: re-reads the per-station CSV and tallies failed-QC observations (overall / per element / per year / per check letter) — the data the parser silently drops — plus `aggregate_region_qc` (observation-weighted region roll-up) |
 | `qc_chart.py` | Dependency-free **raw SVG** renderer for QC charts (per-element flagged-% bars colored by severity) + self-contained HTML with which-check-tripped / worst-stations tables — no matplotlib |
 | `climate_analysis.py` | Pure functions: yearly summaries, monthly summaries, climate normals, anomalies, linear regression, region trend |
-| `climate_charts.py` | matplotlib → SVG renderers: climograph, annual trend, warming stripes, year × month heatmap, anomaly bars (lazy-imported so non-chart callers don't pay the cost) |
+| `climate_charts.py` | Dependency-free **raw SVG** renderers: climograph, annual trend, warming stripes, year × month heatmap, anomaly bars — no matplotlib (pure-Python diverging colormap), so the climate report runs in the runners |
 | `extremes.py` | Pure extreme-event detection: heat waves, cold snaps, wet & dry spells, heavy rain/snow days; per-event catalog, per-type counts, per-decade frequency (no I/O) |
 | `extremes_chart.py` | Dependency-free **raw SVG** renderer for extreme-event charts (grouped per-decade bar chart + trend annotations) + self-contained HTML — no matplotlib (absent in runners) |
 | `geofabrik_regions.py` | Geofabrik `index-v1.json` fetcher + region-path → bbox lookup |
