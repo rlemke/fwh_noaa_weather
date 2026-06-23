@@ -220,6 +220,27 @@ namespace weather.Analysis {
 }
 
 // ---------------------------------------------------------------------------
+// QC — surface how much of a station's record failed NOAA quality control
+// ---------------------------------------------------------------------------
+//
+// The analysis silently drops Q-flagged observations; this namespace counts
+// them instead, so a reader can see what share of the underlying data was
+// rejected (and which QC checks tripped) before trusting a trend.
+
+namespace weather.QC {
+    use weather.types
+
+    /** Report a station's quality-control rejection rate.
+      * Re-reads the same cached GHCN CSV the analysis uses, but COUNTS the
+      * Q-flagged observations instead of skipping them: overall flagged %,
+      * plus breakdowns per element, per year, and per QC-check letter
+      * (D=duplicate, G=gap, O=climatological outlier, …). `quality_summary`
+      * carries the full nested breakdown as JSON; `flagged_pct` is the
+      * headline share and `narrative` a one-line credibility statement. */
+    event facet SummarizeQualityFlags(station_id: String, start_year: Int = 1944, end_year: Int = 2026) => (quality_summary: Json, flagged_pct: Double, total_obs: Int, narrative: String, station_id: String) with Effect(kind = "external") with Cost(tier = "moderate")
+}
+
+// ---------------------------------------------------------------------------
 // Extremes — extreme-event detection from GHCN-Daily records
 // ---------------------------------------------------------------------------
 //
@@ -450,6 +471,17 @@ namespace weather.workflows {
         climate = AnalyzeStationClimate(station_id = $.station_id, station_name = $.station_name, lat = $.lat, lon = $.lon, start_year = $.start_year, end_year = $.end_year)
         geo = ReverseGeocode(lat = $.lat, lon = $.lon)
         yield AnalyzeStation(status = "completed", detail = "Analyzed " ++ fetch.station_id ++ ": " ++ climate.years_analyzed ++ " years")
+    }
+
+    /** Surface a station's quality-control rejection rate: fetch the CSV, then
+      * count how many of its observations NOAA flagged as failing QC. Answers
+      * "how much of this record can I actually trust?" before reading a trend. */
+    workflow SummarizeStationQuality(station_id: String, start_year: Int = 1944, end_year: Int = 2026) => (flagged_pct: Double, total_obs: Int, narrative: String) andThen {
+        fetch = FetchStationData(station_id = $.station_id, start_year = $.start_year, end_year = $.end_year) catch {
+            yield SummarizeStationQuality(flagged_pct = 0.0, total_obs = 0, narrative = "Download failed for " ++ $.station_id)
+        }
+        qc = SummarizeQualityFlags(station_id = $.station_id, start_year = $.start_year, end_year = $.end_year)
+        yield SummarizeStationQuality(flagged_pct = qc.flagged_pct, total_obs = qc.total_obs, narrative = qc.narrative)
     }
 
     /** Detect extreme weather events for a single station (heat waves, cold

@@ -39,6 +39,19 @@ workflows:
       start_year: Int
       end_year: Int
 
+  - qualified_name: weather.workflows.SummarizeStationQuality
+    summary: >-
+      Report how much of a GHCN station's record failed NOAA quality control:
+      fetch its CSV, then count the Q-flagged observations (overall %, per
+      element, per year, and per QC-check). Answers "how trustworthy is this
+      station's data?" / "what fraction was rejected?" before reading a trend.
+    tags: [climate, quality-control, qc, data-quality, ghcn, single-station]
+    entry_point: true
+    param_schema:
+      station_id: String
+      start_year: Int
+      end_year: Int
+
   - qualified_name: weather.workflows.DetectStationExtremeEvents
     summary: >-
       Find the extreme weather events in one GHCN-Daily station's record — heat
@@ -304,6 +317,17 @@ facets:
     signature: "ComputeRegionTrend(country: String, state: String, start_year: Int, end_year: Int, station_count: Int = 0) => (trend: Json, narrative: String)"
     effect: io
     cost: cheap
+
+  - qualified_name: weather.QC.SummarizeQualityFlags
+    namespace: weather.QC
+    purpose: >-
+      Surface a station's quality-control rejection rate: re-read the cached
+      GHCN CSV and COUNT the Q-flagged observations the analysis silently drops
+      — overall flagged %, plus breakdowns per element, per year, and per
+      QC-check letter (D=duplicate, G=gap, O=outlier, …).
+    signature: "SummarizeQualityFlags(station_id: String, start_year: Int = 1944, end_year: Int = 2026) => (quality_summary: Json, flagged_pct: Double, total_obs: Int, narrative: String, station_id: String)"
+    effect: external
+    cost: moderate
 
   - qualified_name: weather.Analysis.AnalyzeStationMonthly
     namespace: weather.Analysis

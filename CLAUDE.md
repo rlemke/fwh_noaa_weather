@@ -12,7 +12,7 @@ FFL, handlers, and tools. The two are wired together via the
 fwh_noaa_weather/
 ├── pyproject.toml                  # declares the facetwork.examples entry point
 ├── src/noaa_weather/__init__.py    # exports `example: ExamplePackage`
-├── src/noaa_weather/handlers/      # event-facet implementations (7 subpackages)
+├── src/noaa_weather/handlers/      # event-facet implementations (one subpackage per domain)
 ├── src/noaa_weather/ffl/           # top-level FFL workflows
 ├── src/noaa_weather/tools/         # CLI utilities + _noaa_tools/ (the real implementation)
 ├── tests/                          # repo-level integration tests
@@ -125,9 +125,10 @@ still needs matplotlib (absent in the runners).
 | `marine/` | NDBC buoy catalog + observations |
 | `report/` | Per-station HTML, batch summaries, warming maps |
 | `extremes/` | Extreme-event detection (heat waves, cold snaps, wet/dry spells, heavy rain/snow) + SVG/HTML charts |
+| `qc/` | Quality-control surfacing — `SummarizeQualityFlags` re-reads the cached CSV and **counts** the Q-flagged observations the analysis silently drops (overall %, per element, per year, per QC-check letter), so a reader can see what share of the record was rejected. Pure counting in `tools/_noaa_tools/ghcn_qc.py`. |
 
 Each module exposes `register_handlers(runner)` for the RegistryRunner;
-all seven are wired into `register_all_registry_handlers` in
+all of them are wired into `register_all_registry_handlers` in
 `src/noaa_weather/handlers/__init__.py`.
 
 ### Extreme-event detection (`weather.Extremes`)

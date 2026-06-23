@@ -69,6 +69,10 @@ from noaa_weather.tools._noaa_tools.ghcn_parse import (  # noqa: F401
     station_country,
     station_in_state,
 )
+from noaa_weather.tools._noaa_tools.ghcn_qc import (  # noqa: F401
+    QFLAG_MEANINGS,
+    summarize_quality_flags,
+)
 
 logger = logging.getLogger("ghcn")
 
@@ -328,6 +332,9 @@ __all__ = [
     "parse_stations",
     "station_country",
     "station_in_state",
+    # QC-flag surfacing re-exports.
+    "QFLAG_MEANINGS",
+    "summarize_quality_flags",
     # Analysis re-exports.
     "aggregate_region_trend",
     "compute_yearly_summaries",

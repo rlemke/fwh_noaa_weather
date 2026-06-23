@@ -82,6 +82,7 @@ Every arrow is sidecar-mediated: each tool records its SHA-256 (plus tool/versio
 | `summarize-station` | `<station_id>` + year range | `climate-summary/<station_id>.json` (optional) | Parse CSV + compute yearly climate summaries |
 | `compute-region-trend` | summary files or `--from-cache` | `region-trend/<country>/<state>.json` (optional) | Aggregate station summaries → regional trend (temperature + precipitation + snowfall per decade) + narrative |
 | `climate-report` | `--region` / `--country --state` + year range, plus `--all-under PREFIX` / `--include-parents` / `--list` for multi-region batches | `climate-report/<country>/<region>/{report.{json,md,html},*.svg}` + master `climate-report/index.html` regenerated after every run | Full regional climate report: monthly normals (WMO 30-year baseline), annual anomalies, decadal comparison (temp/precip/snow), an annual time series incl. snowfall, climograph / warming stripes / heatmap / anomaly / trend SVG charts, self-contained HTML |
+| `summarize-quality-flags` | `<station_id>` + year range | stdout JSON | Count the Q-flagged (failed-QC) observations the analysis drops: overall %, per element, per year, per QC-check letter |
 | `reverse-geocode` | `<lat> <lon>...` or `--coords-file` | `geocode/<lat>_<lon>.json` | Reverse geocode via Nominatim (rate-limited, cached) |
 | `download-ndbc-catalog` | none | `ndbc-catalog/{activestations.xml,stations.json}` | Fetch the NOAA National Data Buoy Center active-stations catalog |
 | `discover-buoys` | `--region` / `--bbox` / `--type` / `--require` | stdout JSON | Filter the cached NDBC catalog (ocean buoys + coastal + DART + NERRS) |
@@ -235,6 +236,7 @@ The real implementation lives in `_noaa_tools/`. Both the CLI tools and the FFL 
 | `storage.py` | LocalStorage / HdfsStorage / **S3Storage** abstraction (`AFL_STORAGE=local\|hdfs\|s3`) + root-path derivation; `localize()` read-through cache for object-store paths; always-local scratch/staging |
 | `ghcn_download.py` | GHCN catalog + per-station CSV download with sidecar cache |
 | `ghcn_parse.py` | Pure parsers for `ghcnd-stations.txt`, `ghcnd-inventory.txt`, per-station CSVs |
+| `ghcn_qc.py` | Pure Q-flag counter: re-reads the per-station CSV and tallies failed-QC observations (overall / per element / per year / per check letter) — the data the parser silently drops |
 | `climate_analysis.py` | Pure functions: yearly summaries, monthly summaries, climate normals, anomalies, linear regression, region trend |
 | `climate_charts.py` | matplotlib → SVG renderers: climograph, annual trend, warming stripes, year × month heatmap, anomaly bars (lazy-imported so non-chart callers don't pay the cost) |
 | `extremes.py` | Pure extreme-event detection: heat waves, cold snaps, wet & dry spells, heavy rain/snow days; per-event catalog, per-type counts, per-decade frequency (no I/O) |

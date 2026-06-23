@@ -10,6 +10,7 @@ providing FFL workflows and handlers for working with NOAA climate data:
 - **Reverse geocoding** — Nominatim-backed station-to-place lookup with on-disk cache
 - **Reporting** — per-station HTML reports, choropleth warming maps, batch summaries
 - **Extreme events** — detect heat waves, cold snaps, wet/dry spells and heavy rain/snow days per station or region, with per-decade trends and dependency-free SVG/HTML charts
+- **Quality control** — surface how much of a station's GHCN record NOAA flagged as failing QC (overall %, per element/year/check), so a reader can judge data credibility before trusting a trend
 
 Discovered by the Facetwork runner via the `facetwork.examples` entry point
 declared in `pyproject.toml`. After `pip install -e .`, Facetwork's
@@ -73,13 +74,14 @@ fwh_noaa_weather/
 ├── scripts/                        # operational scripts (seed-climate-data, …)
 └── src/noaa_weather/
     ├── __init__.py                 # exports `example: ExamplePackage`
-    ├── handlers/                   # 7 event-facet subpackages
+    ├── handlers/                   # event-facet subpackages (one per domain)
     │   ├── analysis/
     │   ├── catalog/
     │   ├── extremes/               # extreme-event detection + SVG/HTML charts
     │   ├── geocode/
     │   ├── ingest/
     │   ├── marine/
+    │   ├── qc/                     # quality-control surfacing (Q-flag rejection rates)
     │   ├── report/
     │   └── shared/                 # ghcn_utils, weather_utils — shims into tools/_noaa_tools
     ├── ffl/                        # weather.ffl + compiled JSON
