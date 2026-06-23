@@ -26,7 +26,7 @@ if str(_TOOLS_ROOT) not in sys.path:
     sys.path.insert(0, str(_TOOLS_ROOT))
 
 from . import ghcn_mocks, sidecar  # noqa: E402
-from .storage import Storage, get_storage  # noqa: E402
+from .storage import Storage, get_storage, local_staging_subdir  # noqa: E402
 
 try:
     import requests
@@ -139,8 +139,7 @@ def _write_cached(
     body = json.dumps(result, indent=2, sort_keys=True) + "\n"
     body_bytes = body.encode("utf-8")
 
-    staging_root = sidecar.staging_dir(NAMESPACE, CACHE_TYPE, storage)
-    os.makedirs(staging_root, exist_ok=True)
+    staging_root = local_staging_subdir(f"{NAMESPACE}/{CACHE_TYPE}")  # always local
     stage_path = os.path.join(staging_root, f"{relative_path}.stage-{os.getpid()}")
     with open(stage_path, "wb") as f:
         f.write(body_bytes)

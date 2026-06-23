@@ -37,7 +37,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _noaa_tools import ndbc_download, ndbc_parse, sidecar  # noqa: E402
-from _noaa_tools.storage import get_storage  # noqa: E402
+from _noaa_tools.storage import get_storage, local_staging_subdir  # noqa: E402
 
 NAMESPACE = "noaa-weather"
 STDMET_CACHE_TYPE = ndbc_download.STDMET_CACHE_TYPE
@@ -132,8 +132,7 @@ def _write_summary_cache(
     }
     body = (json.dumps(output, indent=2, sort_keys=True) + "\n").encode("utf-8")
 
-    staging_dir = sidecar.staging_dir(NAMESPACE, OUTPUT_CACHE_TYPE, storage)
-    os.makedirs(staging_dir, exist_ok=True)
+    staging_dir = local_staging_subdir(f"{NAMESPACE}/{OUTPUT_CACHE_TYPE}")  # always local
     stage_path = os.path.join(staging_dir, f"{station_id}.json.stage-{os.getpid()}")
     with open(stage_path, "wb") as f:
         f.write(body)
