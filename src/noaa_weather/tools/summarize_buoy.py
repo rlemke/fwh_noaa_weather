@@ -37,7 +37,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _noaa_tools import ndbc_download, ndbc_parse, sidecar  # noqa: E402
-from _noaa_tools.storage import LocalStorage  # noqa: E402
+from _noaa_tools.storage import get_storage  # noqa: E402
 
 NAMESPACE = "noaa-weather"
 STDMET_CACHE_TYPE = ndbc_download.STDMET_CACHE_TYPE
@@ -49,29 +49,27 @@ STORM_WAVE_M = 4.0    # rough "rough seas" threshold (WMO storm at sea > 9 m)
 
 
 def _cached_stdmet_years(station_id: str) -> list[int]:
-    """Years with a cached stdmet file for the station."""
-    root = Path(sidecar.cache_dir(NAMESPACE, STDMET_CACHE_TYPE, LocalStorage())) / station_id
-    if not root.is_dir():
-        return []
+    """Years with a cached stdmet file for the station (local or s3)."""
+    rels = sidecar.list_relative_paths(
+        NAMESPACE, STDMET_CACHE_TYPE, under=station_id, storage=get_storage()
+    )
     years: list[int] = []
-    for entry in root.iterdir():
-        # Skip the sidecar siblings; keep <year>.txt.gz
-        if entry.name.endswith(".meta.json") or not entry.name.endswith(".txt.gz"):
+    for rel in rels:
+        name = rel.rsplit("/", 1)[-1]
+        if not name.endswith(".txt.gz"):
             continue
-        stem = entry.name[: -len(".txt.gz")]
         try:
-            years.append(int(stem))
+            years.append(int(name[: -len(".txt.gz")]))
         except ValueError:
             continue
     return sorted(years)
 
 
 def _all_cached_stations() -> list[str]:
-    """Station IDs that have any cached stdmet."""
-    root = Path(sidecar.cache_dir(NAMESPACE, STDMET_CACHE_TYPE, LocalStorage()))
-    if not root.is_dir():
-        return []
-    return sorted(d.name for d in root.iterdir() if d.is_dir())
+    """Station IDs that have any cached stdmet (local or s3)."""
+    rels = sidecar.list_relative_paths(NAMESPACE, STDMET_CACHE_TYPE, storage=get_storage())
+    # relative_path is "<station_id>/<year>.txt.gz" → first segment is the station.
+    return sorted({rel.split("/", 1)[0] for rel in rels if "/" in rel})
 
 
 def _yearly_summary(
@@ -123,9 +121,9 @@ def _write_summary_cache(
     station_id: str,
     summaries: list[dict[str, Any]],
     station_meta: dict[str, Any],
-) -> Path:
+) -> str:
     relative_path = f"{station_id}.json"
-    storage = LocalStorage()
+    storage = get_storage()
     output = {
         "station_id": station_id,
         "station_meta": station_meta,
@@ -140,9 +138,10 @@ def _write_summary_cache(
     with open(stage_path, "wb") as f:
         f.write(body)
 
-    final_path = Path(sidecar.cache_path(NAMESPACE, OUTPUT_CACHE_TYPE, relative_path, storage))
+    # NOT Path(): an s3:// URI would collapse to s3:/ under pathlib normalization.
+    final_path = sidecar.cache_path(NAMESPACE, OUTPUT_CACHE_TYPE, relative_path, storage)
     with sidecar.entry_lock(NAMESPACE, OUTPUT_CACHE_TYPE, relative_path, storage=storage):
-        storage.finalize_from_local(stage_path, str(final_path))
+        storage.finalize_from_local(stage_path, final_path)
         sidecar.write_sidecar(
             NAMESPACE,
             OUTPUT_CACHE_TYPE,
@@ -239,9 +238,11 @@ def main() -> int:
             continue
 
         summaries: list[dict[str, Any]] = []
+        _storage = get_storage()
         for year in years:
             rel = ndbc_download.stdmet_relative_path(station_id, year)
-            path = Path(sidecar.cache_path(NAMESPACE, STDMET_CACHE_TYPE, rel, LocalStorage()))
+            art = sidecar.cache_path(NAMESPACE, STDMET_CACHE_TYPE, rel, _storage)
+            path = Path(_storage.localize(art))  # s3:// -> local file; local -> itself
             summary = _yearly_summary(station_id, year, path)
             if summary is not None:
                 summaries.append(summary)

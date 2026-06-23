@@ -245,27 +245,30 @@ def handle_summarize_buoy(params: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("station_id is required")
 
     storage = get_storage()
-    stdmet_root = Path(sidecar.cache_dir(
-        "noaa-weather", ndbc_download.STDMET_CACHE_TYPE, storage
-    )) / station_id
-    if not stdmet_root.is_dir():
+    # Enumerate the years actually in the cache through the storage abstraction
+    # (sidecar walk), so this works whether the cache lives on local disk or in
+    # s3/MinIO — a Path().iterdir() only ever sees a local directory and silently
+    # found nothing under AFL_STORAGE=s3. relative_path is "<station>/<year>.txt.gz".
+    rels = sidecar.list_relative_paths(
+        "noaa-weather", ndbc_download.STDMET_CACHE_TYPE,
+        under=station_id, storage=storage,
+    )
+    years: list[int] = []
+    for rel in rels:
+        name = rel.rsplit("/", 1)[-1]
+        if not name.endswith(".txt.gz"):
+            continue
+        try:
+            years.append(int(name[: -len(".txt.gz")]))
+        except ValueError:
+            continue
+    if not years:
         _step_log(step_log, f"no cached stdmet for {station_id}", "warning")
         return {
             "station_id": station_id,
             "summary_path": "",
             "years_analyzed": 0,
         }
-
-    # Years actually present on disk, clipped to requested window.
-    years: list[int] = []
-    for entry in stdmet_root.iterdir():
-        if not entry.name.endswith(".txt.gz"):
-            continue
-        stem = entry.name[: -len(".txt.gz")]
-        try:
-            years.append(int(stem))
-        except ValueError:
-            continue
     if start_year:
         years = [y for y in years if y >= start_year]
     if end_year:
@@ -275,10 +278,12 @@ def handle_summarize_buoy(params: dict[str, Any]) -> dict[str, Any]:
     summaries: list[dict[str, Any]] = []
     for year in years:
         rel = ndbc_download.stdmet_relative_path(station_id, year)
-        path = Path(sidecar.cache_path(
+        art_path = sidecar.cache_path(
             "noaa-weather", ndbc_download.STDMET_CACHE_TYPE, rel, storage
-        ))
-        summary = _yearly_summary(station_id, year, path)
+        )
+        # localize: s3:// -> a real local file for the gzip reader; local -> itself.
+        local_path = Path(storage.localize(art_path))
+        summary = _yearly_summary(station_id, year, local_path)
         if summary is not None:
             summaries.append(summary)
 
