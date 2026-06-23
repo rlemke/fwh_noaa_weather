@@ -253,8 +253,8 @@ def handle_render_qc_chart(params: dict[str, Any]) -> dict[str, Any]:
     )
 
     svg = qc_chart.flagged_pct_bars_svg(by_element, title=title)
-    html = qc_chart.qc_html(title=title, label=label, svg=svg, by_flag=by_flag,
-                            worst_stations=worst_stations, summary=narrative)
+    html = qc_chart.qc_html(title=title, label=label, svg=svg, by_element=by_element,
+                            by_flag=by_flag, worst_stations=worst_stations, summary=narrative)
 
     storage = get_storage()
     # Key the output PATH on the stable id (station_id / region), not the display

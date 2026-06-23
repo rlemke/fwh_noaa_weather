@@ -19,6 +19,25 @@ from typing import Any
 # Fixed element order so the chart reads consistently regardless of dict order.
 _ELEMENT_ORDER = ["TMAX", "TMIN", "PRCP", "SNOW", "SNWD"]
 
+# Plain-language meaning of each GHCN-Daily element code, for the chart glossary.
+_ELEMENT_MEANINGS = {
+    "TMAX": "Daily maximum air temperature",
+    "TMIN": "Daily minimum air temperature",
+    "PRCP": "Daily precipitation (rain plus melted snow/ice)",
+    "SNOW": "Daily snowfall",
+    "SNWD": "Snow depth (snow lying on the ground)",
+}
+
+# One-line explainer of what the page is, shown above the chart.
+_QC_EXPLAINER = (
+    "<b>Data quality</b> here means NOAA's quality-control (QC) screening of this "
+    "station's daily weather observations. Every value is run through automated "
+    "checks (duplicate, gap, climatological outlier, internal consistency, …) "
+    "and flagged if it fails; flagged values are dropped from the climate analysis. "
+    "The bars below show, for each measurement type, the share of observations that "
+    "were flagged — <b>lower is better</b> (more of the record is trustworthy)."
+)
+
 
 def _esc(s: object) -> str:
     return (str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
@@ -126,21 +145,47 @@ def _worst_station_rows(worst_stations: list) -> str:
             + "".join(rows) + "</tbody></table>")
 
 
+def _element_key_rows(by_element: dict) -> str:
+    """Glossary table explaining the element codes shown on the chart."""
+    elements = _ordered_elements(by_element or {})
+    if not elements:
+        return ""
+    rows = [
+        f"<tr><td><code>{_esc(e)}</code></td>"
+        f"<td>{_esc(_ELEMENT_MEANINGS.get(e, 'GHCN-Daily element'))}</td></tr>"
+        for e in elements
+    ]
+    return ("<h2 style='font-size:15px'>What the codes mean</h2>"
+            "<table cellpadding='6' style='border-collapse:collapse'>"
+            "<thead><tr><th>Code</th><th style='text-align:left'>Measurement</th>"
+            "</tr></thead><tbody>" + "".join(rows) + "</tbody></table>")
+
+
 def qc_html(
     *,
     title: str,
     label: str,
     svg: str,
+    by_element: dict | None = None,
     by_flag: dict | None = None,
     worst_stations: list | None = None,
     summary: str | None = None,
 ) -> str:
-    """Self-contained HTML page embedding the SVG chart + flag/worst-station tables."""
+    """Self-contained HTML page embedding the SVG chart + flag/worst-station tables.
+
+    Includes a plain-language explainer of what "data quality" means and a
+    glossary of the element codes (TMAX/SNWD/…), so the page is readable without
+    prior GHCN knowledge.
+    """
     summ = f"<p style='color:#555'>{_esc(summary)}</p>" if summary else ""
     return (f"<!doctype html><html><head><meta charset='utf-8'><title>{_esc(title)}</title>"
             f"<style>body{{font-family:sans-serif;margin:32px;max-width:880px}}"
             f"h2{{margin-top:28px}}th,td{{border-bottom:1px solid #eee}}"
+            f".intro{{color:#444;background:#f7f9fb;border-left:3px solid #cdd7e0;"
+            f"padding:10px 14px;line-height:1.5}}"
             f"code{{background:#f6f6f6;padding:1px 4px;border-radius:3px}}</style></head><body>"
             f"<h1>{_esc(title)}</h1><p style='color:#888'>{_esc(label)}</p>{summ}"
-            f"{svg}{_flag_rows(by_flag or {})}{_worst_station_rows(worst_stations or [])}"
+            f"<p class='intro'>{_QC_EXPLAINER}</p>"
+            f"{svg}{_element_key_rows(by_element or {})}"
+            f"{_flag_rows(by_flag or {})}{_worst_station_rows(worst_stations or [])}"
             f"</body></html>")

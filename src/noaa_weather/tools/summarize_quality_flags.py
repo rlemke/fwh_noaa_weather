@@ -83,9 +83,10 @@ def main() -> int:
             summary["by_element"], title=f"Data quality — {args.station_id}"
         )
         html = qc_chart.qc_html(
-            title=f"Data quality — {args.station_id}",
+            title=f"Data quality: {args.station_id}",
             label=f"{args.start_year}-{args.end_year}",
             svg=svg,
+            by_element=summary["by_element"],
             by_flag=summary["by_flag"],
             summary=f"{summary['flagged_pct']}% of {summary['total_obs']:,} "
             f"observations failed QC.",

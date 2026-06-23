@@ -260,3 +260,17 @@ def test_chart_title_prefers_station_name_but_path_keys_on_id(tmp_path):
     html2 = open(r2["html_path"]).read()
     assert "Data quality: USW00094728" in re.search(r"<title>(.*?)</title>", html2).group(1)
     assert "/qc-viz/USW00094728/" in r2["html_path"]
+
+
+def test_html_includes_qc_explainer_and_element_glossary():
+    by_element = {"TMAX": {"total": 100, "flagged": 3, "pct": 3.0},
+                  "SNWD": {"total": 100, "flagged": 4, "pct": 4.0}}
+    svg = qc_chart.flagged_pct_bars_svg(by_element)
+    html = qc_chart.qc_html(title="Data quality: X", label="X", svg=svg,
+                            by_element=by_element, by_flag={}, summary="…")
+    # Plain-language explainer of what "data quality"/QC means.
+    assert "quality-control (QC)" in html
+    assert "lower is better" in html
+    # Element glossary so SNWD/TMAX aren't bare codes.
+    assert "What the codes mean" in html
+    assert "Snow depth" in html and "Daily maximum air temperature" in html
