@@ -50,7 +50,7 @@ from . import (  # noqa: E402
     warming_map,
     warming_time_map,
 )
-from .storage import LocalStorage  # noqa: E402
+from .storage import LocalStorage, get_storage, local_staging_subdir  # noqa: E402
 
 logger = logging.getLogger("noaa-weather.report")
 
@@ -346,12 +346,13 @@ def generate_climate_report(
     # --- 6. Write bundle to disk + sidecars ------------------------------
     country_dir = country or "ALL"
     region_dir = _region_key(state=state, region_info=region_info)
-    out_dir = _resolve_output_dir(
+    durable_dir, local_dir, to_cache = _resolve_output_dir(
         output_dir=output_dir, country_dir=country_dir, region_dir=region_dir
     )
 
     json_path, md_path, html_path, chart_paths = _write_outputs(
-        out_dir=out_dir,
+        local_dir=local_dir,
+        to_cache=to_cache,
         country_dir=country_dir,
         region_dir=region_dir,
         report=report,
@@ -366,10 +367,10 @@ def generate_climate_report(
     # Batch callers pass refresh_index=False to skip this per-region;
     # they invoke rebuild_report_derived_pages() once at the end.
     if refresh_index:
-        rebuild_report_derived_pages(storage=LocalStorage())
+        rebuild_report_derived_pages(storage=get_storage())
 
     return ReportBundle(
-        output_dir=out_dir,
+        output_dir=durable_dir,
         report_json_path=json_path,
         report_md_path=md_path,
         report_html_path=html_path,
@@ -733,27 +734,37 @@ def _resolve_output_dir(
     output_dir: Path | None,
     country_dir: str,
     region_dir: str,
-) -> Path:
+) -> tuple[str, Path, bool]:
+    """Return ``(durable_dir, local_dir, to_cache)``.
+
+    - ``durable_dir`` — where artifacts are addressable afterwards: the shared
+      cache path (may be ``s3://…``) or an explicit local ``--output-dir``.
+    - ``local_dir`` — a REAL local directory the files are written to before any
+      finalize (NEVER an ``s3://`` path — pathlib/open need a local file).
+    - ``to_cache`` — True for the default (stage→finalize into the cache); False
+      for an explicit local output dir (write straight there).
+    """
+    relative_dir = f"{country_dir}/{region_dir}"
     if output_dir is not None:
         output_dir.mkdir(parents=True, exist_ok=True)
-        return output_dir
-    relative_dir = f"{country_dir}/{region_dir}"
-    abs_dir = sidecar.cache_path(NAMESPACE, CACHE_TYPE, relative_dir, LocalStorage())
-    Path(abs_dir).mkdir(parents=True, exist_ok=True)
-    return Path(abs_dir)
+        return str(output_dir), output_dir, False
+    durable_dir = sidecar.cache_path(NAMESPACE, CACHE_TYPE, relative_dir, get_storage())
+    local_dir = Path(local_staging_subdir(f"{NAMESPACE}/{CACHE_TYPE}/{relative_dir}"))
+    return durable_dir, local_dir, True
 
 
 def _write_outputs(
     *,
-    out_dir: Path,
+    local_dir: Path,
+    to_cache: bool,
     country_dir: str,
     region_dir: str,
     report: dict[str, Any],
     md: str,
     html: str,
     charts: dict[str, str],
-) -> tuple[Path, Path, Path, dict[str, Path]]:
-    storage = LocalStorage()
+) -> tuple[str, str, str, dict[str, str]]:
+    storage = get_storage()
 
     trend = report.get("trend") or {}
     trend_summary = {
@@ -762,30 +773,42 @@ def _write_outputs(
         "narrative": trend.get("narrative"),
     }
 
-    def _write(name: str, text: str, content_kind: str) -> Path:
-        file_path = out_dir / name
-        file_path.write_text(text, encoding="utf-8")
+    def _write(name: str, text: str, content_kind: str) -> str:
         body_bytes = text.encode("utf-8")
+        # Always write the bytes to a real local file first.
+        local_file = Path(local_dir) / name
+        local_file.write_text(text, encoding="utf-8")
         relative_path = f"{country_dir}/{region_dir}/{name}"
+        extra = {
+            "content_kind": content_kind,
+            "region": report["region"],
+            "year_range": report["year_range"],
+            "baseline": report["baseline"],
+            "station_count": report["station_count"],
+            "trend": trend_summary,
+        }
+        if to_cache:
+            # Stage→finalize into the (possibly remote) cache + record a sidecar.
+            durable = sidecar.cache_path(NAMESPACE, CACHE_TYPE, relative_path, storage)
+            with sidecar.entry_lock(NAMESPACE, CACHE_TYPE, relative_path, storage=storage):
+                storage.finalize_from_local(str(local_file), durable)
+                sidecar.write_sidecar(
+                    NAMESPACE, CACHE_TYPE, relative_path, kind="file",
+                    size_bytes=len(body_bytes),
+                    sha256=hashlib.sha256(body_bytes).hexdigest(),
+                    tool={"name": "climate_report", "version": "1.0"},
+                    extra=extra, storage=storage,
+                )
+            return durable
+        # Explicit local output dir: the local file IS the artifact; still index it.
         sidecar.write_sidecar(
-            NAMESPACE,
-            CACHE_TYPE,
-            relative_path,
-            kind="file",
+            NAMESPACE, CACHE_TYPE, relative_path, kind="file",
             size_bytes=len(body_bytes),
             sha256=hashlib.sha256(body_bytes).hexdigest(),
             tool={"name": "climate_report", "version": "1.0"},
-            extra={
-                "content_kind": content_kind,
-                "region": report["region"],
-                "year_range": report["year_range"],
-                "baseline": report["baseline"],
-                "station_count": report["station_count"],
-                "trend": trend_summary,
-            },
-            storage=storage,
+            extra=extra, storage=storage,
         )
-        return file_path
+        return str(local_file)
 
     json_path = _write(
         "report.json",
@@ -794,7 +817,7 @@ def _write_outputs(
     )
     md_path = _write("report.md", md + ("\n" if not md.endswith("\n") else ""), "markdown")
     html_path = _write("report.html", html, "html")
-    chart_paths: dict[str, Path] = {}
+    chart_paths: dict[str, str] = {}
     for chart_name, svg in charts.items():
         chart_paths[chart_name] = _write(chart_name, svg, "svg")
 
