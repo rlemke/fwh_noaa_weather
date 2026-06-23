@@ -528,7 +528,7 @@ namespace weather.workflows {
             yield VisualizeStationQuality(status = "failed", html_path = "")
         }
         qc = SummarizeQualityFlags(station_id = $.station_id, station_name = $.station_name, start_year = $.start_year, end_year = $.end_year)
-        chart = RenderQCChart(summary_json = qc.quality_summary, title = "Data quality — " ++ $.station_id, label = $.station_id)
+        chart = RenderQCChart(summary_json = qc.quality_summary, title = "Data quality: " ++ $.station_id, label = $.station_id)
         yield VisualizeStationQuality(status = "completed", html_path = chart.html_path)
     }
 
@@ -543,7 +543,7 @@ namespace weather.workflows {
             }
         }
         region = AggregateRegionQC(country = $.country, state = $.state, start_year = $.start_year, end_year = $.end_year, station_count = discovery.station_count)
-        chart = RenderQCChart(summary_json = region.region_summary, title = "Data quality — " ++ $.state, label = $.state)
+        chart = RenderQCChart(summary_json = region.region_summary, title = "Data quality: " ++ $.state, label = $.state)
         yield VisualizeRegionQuality(status = "completed", narrative = region.narrative, html_path = chart.html_path)
     }
 
@@ -615,7 +615,7 @@ namespace weather.workflows {
         events = DetectStationExtremes(station_id = $.station_id, station_name = $.station_name, start_year = $.start_year, end_year = $.end_year) catch {
             yield VisualizeStationExtremes(status = "failed", html_path = "")
         }
-        chart = RenderExtremesChart(title = "Extreme events — " ++ $.station_name, label = $.station_id, counts_by_type = events.counts_by_type, decadal_frequency = events.decadal_frequency, summary = events.summary)
+        chart = RenderExtremesChart(title = "Extreme events: " ++ $.station_name, label = $.station_id, counts_by_type = events.counts_by_type, decadal_frequency = events.decadal_frequency, summary = events.summary)
         yield VisualizeStationExtremes(status = "completed", html_path = chart.html_path)
     }
 
@@ -637,7 +637,7 @@ namespace weather.workflows {
             }
         }
         region = AggregateRegionExtremes(country = $.country, state = $.state, start_year = $.start_year, end_year = $.end_year, station_count = discovery.station_count)
-        chart = RenderExtremesChart(title = "Extreme-event decadal trends — " ++ $.state, label = $.state, counts_by_type = region.counts_by_type, decadal_frequency = region.decadal_frequency, trends = region.trends, summary = region.narrative)
+        chart = RenderExtremesChart(title = "Extreme-event decadal trends: " ++ $.state, label = $.state, counts_by_type = region.counts_by_type, decadal_frequency = region.decadal_frequency, trends = region.trends, summary = region.narrative)
         yield VisualizeRegionExtremes(status = "completed", narrative = region.narrative, html_path = chart.html_path)
     }
 
