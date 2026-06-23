@@ -18,14 +18,14 @@ Use this as your starting point if you are:
 3. How `catch` blocks recover from download failures without aborting the workflow
 4. How workflow composition scales from a single station to all 50 US states (and internationally)
 5. How `ClimateStore` and `WeatherReportStore` persist results to MongoDB for cross-handler aggregation
-6. How linear regression computes warming rates and precipitation trends across decades
+6. How linear regression computes warming rates, precipitation, and snowfall trends across decades
 7. How OSM Nominatim reverse geocoding enriches station data with location context
 
 ## Step-by-Step Walkthrough
 
 ### 1. The Problem
 
-Given a region (country and optional state), discover GHCN-Daily weather stations with sufficient data coverage, download each station's CSV from AWS S3, compute per-year climate summaries (temperature, precipitation, extreme days), aggregate across stations into a regional trend with linear regression, and produce a narrative summary. Handle download failures gracefully so partial results are still useful.
+Given a region (country and optional state), discover GHCN-Daily weather stations with sufficient data coverage, download each station's CSV from AWS S3, compute per-year climate summaries (temperature, precipitation, snowfall, extreme days), aggregate across stations into a regional trend with linear regression (warming rate, precipitation change, and snowfall change per decade), and produce a narrative summary. Handle download failures gracefully so partial results are still useful.
 
 ### 2. The Data Source — GHCN-Daily on AWS S3
 

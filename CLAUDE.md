@@ -120,7 +120,7 @@ still needs matplotlib (absent in the runners).
 |------------|--------|
 | `catalog/` | Station catalog discovery (GHCN inventory + filtering) |
 | `ingest/` | Per-station CSV download + parse |
-| `analysis/` | Yearly summaries, regional trends, linear regression |
+| `analysis/` | Yearly summaries + regional trends (temperature, precipitation, **snowfall**) via linear regression. Per-year snow metrics (`snow_annual`, `snow_depth_max`, `snow_days`) are `None`, not 0, when a station/year logged no SNOW/SNWD, so warm regions / non-snow stations stay out of the snow regression; `ComputeRegionTrend` emits `snow_per_decade_mm` + `snow_change_pct` + `has_snow_data` and adds a snowfall sentence to the narrative only when snow data exists. |
 | `geocode/` | Reverse-geocoding via Nominatim |
 | `marine/` | NDBC buoy catalog + observations |
 | `report/` | Per-station HTML, batch summaries, warming maps |

@@ -6,7 +6,7 @@ providing FFL workflows and handlers for working with NOAA climate data:
 - **GHCN catalog** — discover and ingest Global Historical Climatology Network station data
 - **NDBC buoys** — fetch and summarise National Data Buoy Center marine observations
 - **ISD-Lite** — hourly station observations with offline mocks for tests
-- **Climate analysis** — yearly state aggregates, multi-decade trends, linear regressions
+- **Climate analysis** — yearly state aggregates, multi-decade trends (temperature, precipitation, **snowfall**), linear regressions
 - **Reverse geocoding** — Nominatim-backed station-to-place lookup with on-disk cache
 - **Reporting** — per-station HTML reports, choropleth warming maps, batch summaries
 - **Extreme events** — detect heat waves, cold snaps, wet/dry spells and heavy rain/snow days per station or region, with per-decade trends and dependency-free SVG/HTML charts
