@@ -310,6 +310,9 @@ def generate_climate_report(
         "trend": {
             "warming_rate_per_decade": trend["warming_rate_per_decade"],
             "precip_change_pct": trend["precip_change_pct"],
+            "snow_change_pct": trend.get("snow_change_pct", 0.0),
+            "snow_per_decade_mm": trend.get("snow_per_decade_mm", 0.0),
+            "has_snow_data": trend.get("has_snow_data", False),
             "decades": trend["decades"],
             "narrative": trend["narrative"],
         },
@@ -394,6 +397,7 @@ def _aggregate_annual(
         recs = by_year[y]
         temps = [r["temp_mean"] for r in recs if r.get("temp_mean") is not None]
         precips = [r["precip_annual"] for r in recs if r.get("precip_annual") is not None]
+        snows = [r["snow_annual"] for r in recs if r.get("snow_annual") is not None]
         hot = sum(r.get("hot_days", 0) or 0 for r in recs)
         frost = sum(r.get("frost_days", 0) or 0 for r in recs)
         if not temps:
@@ -409,6 +413,7 @@ def _aggregate_annual(
                 "temp_min_avg": round(sum(mins) / len(mins), 2) if mins else None,
                 "temp_max_avg": round(sum(maxs) / len(maxs), 2) if maxs else None,
                 "precip_annual": round(sum(precips) / len(precips), 1) if precips else 0.0,
+                "snow_annual": round(sum(snows) / len(snows), 1) if snows else None,
                 "hot_days": hot,
                 "frost_days": frost,
             }
@@ -480,6 +485,11 @@ def _render_markdown(report: dict[str, Any], chart_files: list[str]) -> str:
         f"- **Precipitation change** (first vs last year in range): "
         f"{trend['precip_change_pct']:+.1f} %"
     )
+    if trend.get("has_snow_data"):
+        lines.append(
+            f"- **Snowfall change**: {trend['snow_per_decade_mm']:+.1f} mm / decade "
+            f"({trend['snow_change_pct']:+.1f} %)"
+        )
     lines.append("")
     lines.append("## Charts")
     lines.append("")
@@ -503,19 +513,20 @@ def _render_markdown(report: dict[str, Any], chart_files: list[str]) -> str:
     lines.append("")
     lines.append("## Decadal comparison")
     lines.append("")
-    lines.append("| Decade | Avg temp °C | Avg precip (mm) | Years w/ data |")
-    lines.append("|---|---:|---:|---:|")
+    lines.append("| Decade | Avg temp °C | Avg precip (mm) | Avg snow (mm) | Years w/ data |")
+    lines.append("|---|---:|---:|---:|---:|")
     for dec, vals in sorted(trend["decades"].items()):
         lines.append(
-            f"| {dec} | {vals['avg_temp']} | {vals['avg_precip']} | {vals['years_with_data']} |"
+            f"| {dec} | {vals['avg_temp']} | {vals['avg_precip']} "
+            f"| {_fmt(vals.get('avg_snow'))} | {vals['years_with_data']} |"
         )
     lines.append("")
     lines.append("## Annual time series")
     lines.append("")
     lines.append(
-        "| Year | Mean °C | Min °C | Max °C | Precip (mm) | Hot days | Frost days | Stations |"
+        "| Year | Mean °C | Min °C | Max °C | Precip (mm) | Snow (mm) | Hot days | Frost days | Stations |"
     )
-    lines.append("|---|---:|---:|---:|---:|---:|---:|---:|")
+    lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
     for r in annual:
         lines.append(
             f"| {r['year']} "
@@ -523,6 +534,7 @@ def _render_markdown(report: dict[str, Any], chart_files: list[str]) -> str:
             f"| {_fmt(r.get('temp_min_avg'))} "
             f"| {_fmt(r.get('temp_max_avg'))} "
             f"| {_fmt(r.get('precip_annual'))} "
+            f"| {_fmt(r.get('snow_annual'))} "
             f"| {r.get('hot_days', 0)} "
             f"| {r.get('frost_days', 0)} "
             f"| {r.get('station_count', 0)} |"

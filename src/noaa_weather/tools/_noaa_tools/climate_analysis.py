@@ -27,7 +27,10 @@ def compute_yearly_summaries(
 
     ``year``, ``station_id``, ``state``, ``temp_mean``, ``temp_min_avg``,
     ``temp_max_avg``, ``precip_annual``, ``hot_days``, ``frost_days``,
-    ``precip_days``, ``obs_days``.
+    ``precip_days``, ``snow_annual``, ``snow_depth_max``, ``snow_days``,
+    ``obs_days``. Snow fields are ``None`` for years/stations with no SNOW/SNWD
+    observations, so downstream trend code can tell "no snow recorded" (often a
+    warm climate or a non-snow station) apart from a real zero.
     """
     by_year: dict[int, list[dict[str, Any]]] = {}
     for d in daily_data:
@@ -46,6 +49,8 @@ def compute_yearly_summaries(
         tmaxs = [d["tmax"] for d in days if d.get("tmax") is not None]
         tmins = [d["tmin"] for d in days if d.get("tmin") is not None]
         prcps = [d["prcp"] for d in days if d.get("prcp") is not None]
+        snows = [d["snow"] for d in days if d.get("snow") is not None]
+        snwds = [d["snwd"] for d in days if d.get("snwd") is not None]
 
         daily_means: list[float] = [
             (d["tmax"] + d["tmin"]) / 2.0
@@ -62,6 +67,13 @@ def compute_yearly_summaries(
         frost_days = sum(1 for t in tmins if t < FROST_DAY_TMIN_C)
         precip_days = sum(1 for p in prcps if p > 0.0)
 
+        # Snow: total annual snowfall (mm), peak snow depth (mm), and days with
+        # measurable snowfall. None when the station logged no SNOW/SNWD that
+        # year, so trends can skip "no snow recorded" rather than read it as 0.
+        snow_annual = round(sum(snows), 1) if snows else None
+        snow_depth_max = round(max(snwds), 1) if snwds else None
+        snow_days = sum(1 for s in snows if s > 0.0) if snows else None
+
         summaries.append(
             {
                 "year": year,
@@ -74,6 +86,9 @@ def compute_yearly_summaries(
                 "hot_days": hot_days,
                 "frost_days": frost_days,
                 "precip_days": precip_days,
+                "snow_annual": snow_annual,
+                "snow_depth_max": snow_depth_max,
+                "snow_days": snow_days,
                 "obs_days": len(days),
             }
         )
@@ -291,6 +306,7 @@ def aggregate_region_trend(
         recs = by_year[yr]
         temps = [r["temp_mean"] for r in recs if r.get("temp_mean") is not None]
         precips = [r["precip_annual"] for r in recs if r.get("precip_annual") is not None]
+        snows = [r["snow_annual"] for r in recs if r.get("snow_annual") is not None]
         if not temps:
             continue
         years_data.append(
@@ -302,6 +318,7 @@ def aggregate_region_trend(
                 "temp_min_avg": round(min(temps), 2),
                 "temp_max_avg": round(max(temps), 2),
                 "precip_annual": round(sum(precips) / len(precips), 1) if precips else 0.0,
+                "snow_annual": round(sum(snows) / len(snows), 1) if snows else None,
                 "hot_days": sum(r.get("hot_days", 0) or 0 for r in recs),
                 "frost_days": sum(r.get("frost_days", 0) or 0 for r in recs),
                 "precip_days": 0,
@@ -320,12 +337,29 @@ def aggregate_region_trend(
     else:
         precip_change_pct = 0.0
 
+    # Snow trend over years that recorded snow (None years excluded).
+    snow_pairs = [(d["year"], d["snow_annual"]) for d in years_data
+                  if d.get("snow_annual") is not None]
+    has_snow_data = len(snow_pairs) >= 2
+    if has_snow_data:
+        slope_snow, _ = simple_linear_regression(
+            [float(y) for y, _ in snow_pairs], [s for _, s in snow_pairs])
+        snow_per_decade_mm = round(slope_snow * 10, 1)
+        first_snow = snow_pairs[0][1]
+        snow_change_pct = (round((snow_pairs[-1][1] - first_snow) / abs(first_snow) * 100, 1)
+                           if first_snow else 0.0)
+    else:
+        snow_per_decade_mm = 0.0
+        snow_change_pct = 0.0
+
     decades: dict[str, dict[str, Any]] = {}
     for d in years_data:
         decade = f"{(d['year'] // 10) * 10}s"
-        dec = decades.setdefault(decade, {"temps": [], "precips": [], "count": 0})
+        dec = decades.setdefault(decade, {"temps": [], "precips": [], "snows": [], "count": 0})
         dec["temps"].append(d["temp_mean"])
         dec["precips"].append(d["precip_annual"])
+        if d.get("snow_annual") is not None:
+            dec["snows"].append(d["snow_annual"])
         dec["count"] += 1
 
     decades_summary: dict[str, dict[str, Any]] = {}
@@ -336,6 +370,11 @@ def aggregate_region_trend(
                 round(sum(dec_data["precips"]) / len(dec_data["precips"]), 1)
                 if dec_data["precips"]
                 else 0.0
+            ),
+            "avg_snow": (
+                round(sum(dec_data["snows"]) / len(dec_data["snows"]), 1)
+                if dec_data["snows"]
+                else None
             ),
             "years_with_data": dec_data["count"],
         }
@@ -348,6 +387,11 @@ def aggregate_region_trend(
         f"Annual precipitation has {'increased' if precip_change_pct > 0 else 'decreased'} "
         f"by {abs(precip_change_pct)}%."
     )
+    if has_snow_data:
+        narrative += (
+            f" Annual snowfall has {'increased' if snow_per_decade_mm > 0 else 'decreased'} "
+            f"by {abs(snow_per_decade_mm)}mm per decade ({abs(snow_change_pct)}%)."
+        )
 
     return {
         "state": state,
@@ -356,6 +400,9 @@ def aggregate_region_trend(
         "years_data": years_data,
         "warming_rate_per_decade": warming_per_decade,
         "precip_change_pct": precip_change_pct,
+        "snow_change_pct": snow_change_pct,
+        "snow_per_decade_mm": snow_per_decade_mm,
+        "has_snow_data": has_snow_data,
         "decades": decades_summary,
         "narrative": narrative,
     }

@@ -76,6 +76,9 @@ def handle_analyze_station_climate(params: dict[str, Any]) -> dict[str, Any]:
                     "precip_annual": summary.get("precip_annual"),
                     "hot_days": summary.get("hot_days"),
                     "frost_days": summary.get("frost_days"),
+                    "snow_annual": summary.get("snow_annual"),
+                    "snow_depth_max": summary.get("snow_depth_max"),
+                    "snow_days": summary.get("snow_days"),
                 },
                 daily_stats=[],
             )
@@ -154,6 +157,11 @@ def handle_compute_region_trend(params: dict[str, Any]) -> dict[str, Any]:
             for r in recs
             if r.get("report", {}).get("precip_annual") is not None
         ]
+        snows = [
+            r["report"]["snow_annual"]
+            for r in recs
+            if r.get("report", {}).get("snow_annual") is not None
+        ]
 
         if not temps:
             continue
@@ -169,6 +177,9 @@ def handle_compute_region_trend(params: dict[str, Any]) -> dict[str, Any]:
             "hot_days": sum(r.get("report", {}).get("hot_days", 0) or 0 for r in recs),
             "frost_days": sum(r.get("report", {}).get("frost_days", 0) or 0 for r in recs),
             "precip_days": 0,
+            # None (not 0) when no station reported snow this year — keeps warm
+            # regions / non-snow stations out of the snow trend regression.
+            "snow_annual": round(sum(snows) / len(snows), 1) if snows else None,
         }
         years_data.append(yearly)
 
@@ -191,13 +202,31 @@ def handle_compute_region_trend(params: dict[str, Any]) -> dict[str, Any]:
     else:
         precip_change_pct = 0.0
 
+    # Snow trend — only over years that actually recorded snow (snow_annual not
+    # None); regions with no snow data get has_snow_data=False and no snow line.
+    snow_pairs = [(d["year"], d["snow_annual"]) for d in years_data
+                  if d.get("snow_annual") is not None]
+    has_snow_data = len(snow_pairs) >= 2
+    if has_snow_data:
+        xs_snow = [float(y) for y, _ in snow_pairs]
+        ys_snow = [s for _, s in snow_pairs]
+        slope_snow, _ = simple_linear_regression(xs_snow, ys_snow)
+        snow_per_decade_mm = round(slope_snow * 10, 1)
+        snow_change_pct = (round((ys_snow[-1] - ys_snow[0]) / abs(ys_snow[0]) * 100, 1)
+                           if ys_snow[0] else 0.0)
+    else:
+        snow_per_decade_mm = 0.0
+        snow_change_pct = 0.0
+
     # Build decades summary
     decades: dict[str, dict] = {}
     for d in years_data:
         decade = f"{(d['year'] // 10) * 10}s"
-        dec = decades.setdefault(decade, {"temps": [], "precips": [], "count": 0})
+        dec = decades.setdefault(decade, {"temps": [], "precips": [], "snows": [], "count": 0})
         dec["temps"].append(d["temp_mean"])
         dec["precips"].append(d["precip_annual"])
+        if d.get("snow_annual") is not None:
+            dec["snows"].append(d["snow_annual"])
         dec["count"] += 1
 
     decades_summary: dict[str, dict] = {}
@@ -207,6 +236,9 @@ def handle_compute_region_trend(params: dict[str, Any]) -> dict[str, Any]:
             "avg_precip": round(sum(dec_data["precips"]) / len(dec_data["precips"]), 1)
             if dec_data["precips"]
             else 0,
+            "avg_snow": round(sum(dec_data["snows"]) / len(dec_data["snows"]), 1)
+            if dec_data["snows"]
+            else None,
             "years_with_data": dec_data["count"],
         }
 
@@ -218,6 +250,11 @@ def handle_compute_region_trend(params: dict[str, Any]) -> dict[str, Any]:
         f"Annual precipitation has {'increased' if precip_change_pct > 0 else 'decreased'} "
         f"by {abs(precip_change_pct)}%."
     )
+    if has_snow_data:
+        narrative += (
+            f" Annual snowfall has {'increased' if snow_per_decade_mm > 0 else 'decreased'} "
+            f"by {abs(snow_per_decade_mm)}mm per decade ({abs(snow_change_pct)}%)."
+        )
 
     trend = {
         "state": state,
@@ -225,6 +262,9 @@ def handle_compute_region_trend(params: dict[str, Any]) -> dict[str, Any]:
         "end_year": end_year,
         "warming_rate_per_decade": warming_per_decade,
         "precip_change_pct": precip_change_pct,
+        "snow_change_pct": snow_change_pct,
+        "snow_per_decade_mm": snow_per_decade_mm,
+        "has_snow_data": has_snow_data,
         "decades": decades_summary,
     }
 
