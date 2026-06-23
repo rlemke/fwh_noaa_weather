@@ -249,6 +249,14 @@ namespace weather.QC {
       * @param station_count Dependency signal — pass discovery.station_count so
       *   this waits for all per-station QC steps before aggregating. */
     event facet AggregateRegionQC(country: String, state: String, start_year: Int = 1944, end_year: Int = 2026, station_count: Int = 0) => (region_summary: Json, narrative: String, flagged_pct: Double, station_count: Int) with Effect(kind = "io") with Cost(tier = "cheap")
+
+    /** Render a QC summary as a chart + self-contained HTML page.
+      * Takes the `summary_json` either SummarizeQualityFlags (`quality_summary`)
+      * or AggregateRegionQC (`region_summary`) emits, and draws a horizontal bar
+      * per element of its flagged % (colored by severity) plus a which-check-
+      * tripped table and, for a region, a worst-stations table. Dependency-free
+      * SVG (no matplotlib). Returns the HTML + SVG paths. */
+    event facet RenderQCChart(summary_json: Json, title: String = "Data quality", label: String = "") => (html_path: String, svg_path: String, narrative: String) with Effect(kind = "io") with Cost(tier = "cheap")
 }
 
 // ---------------------------------------------------------------------------
@@ -509,6 +517,34 @@ namespace weather.workflows {
         }
         region = AggregateRegionQC(country = $.country, state = $.state, start_year = $.start_year, end_year = $.end_year, station_count = discovery.station_count)
         yield SummarizeRegionQuality(status = "completed", narrative = region.narrative)
+    }
+
+    /** Summarize one station's QC rejection rate AND render it as a chart + HTML
+      * page. FetchStationData -> SummarizeQualityFlags -> RenderQCChart. Supply a
+      * station_id; returns the path to a self-contained HTML chart of per-element
+      * flagged % + which-check-tripped table. */
+    workflow VisualizeStationQuality(station_id: String, station_name: String = "", start_year: Int = 1944, end_year: Int = 2026) => (status: String, html_path: String) andThen {
+        fetch = FetchStationData(station_id = $.station_id, start_year = $.start_year, end_year = $.end_year) catch {
+            yield VisualizeStationQuality(status = "failed", html_path = "")
+        }
+        qc = SummarizeQualityFlags(station_id = $.station_id, station_name = $.station_name, start_year = $.start_year, end_year = $.end_year)
+        chart = RenderQCChart(summary_json = qc.quality_summary, title = "Data quality — " ++ $.station_id, label = $.station_id)
+        yield VisualizeStationQuality(status = "completed", html_path = chart.html_path)
+    }
+
+    /** Region-level QC AND a chart of the per-element rejection rates.
+      * DiscoverStations -> foreach SummarizeQualityFlags -> AggregateRegionQC ->
+      * RenderQCChart. Supply country + state; returns the region narrative + the
+      * path to a chart showing each element's flagged % and the worst stations. */
+    workflow VisualizeRegionQuality(country: String = "US", state: String = "NY", max_stations: Int = 5, start_year: Int = 1944, end_year: Int = 2026) => (status: String, narrative: String, html_path: String) andThen {
+        discovery = DiscoverStations(country = $.country, state = $.state, max_stations = $.max_stations) andThen foreach station in discovery.stations {
+            qc = SummarizeQualityFlags(station_id = $.station.station_id, station_name = $.station.name, state = $.state, start_year = $.start_year, end_year = $.end_year) catch {
+                yield VisualizeRegionQuality(status = "partial_failure", narrative = "", html_path = "")
+            }
+        }
+        region = AggregateRegionQC(country = $.country, state = $.state, start_year = $.start_year, end_year = $.end_year, station_count = discovery.station_count)
+        chart = RenderQCChart(summary_json = region.region_summary, title = "Data quality — " ++ $.state, label = $.state)
+        yield VisualizeRegionQuality(status = "completed", narrative = region.narrative, html_path = chart.html_path)
     }
 
     /** Detect extreme weather events for a single station (heat waves, cold

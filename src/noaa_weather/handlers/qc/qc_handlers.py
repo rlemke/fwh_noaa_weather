@@ -10,9 +10,11 @@ the download + JSON shaping.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
+import re
 import time
 from typing import Any
 
@@ -23,6 +25,22 @@ from ..shared.ghcn_utils import (
     get_weather_db,
     summarize_quality_flags,
 )
+from noaa_weather.tools._noaa_tools import qc_chart, sidecar
+from noaa_weather.tools._noaa_tools.storage import get_storage
+
+_VIZ_CACHE_TYPE = "qc-viz"
+
+
+def _coerce_json(value: Any, default: Any) -> Any:
+    """Accept a JSON string or an already-parsed value (FFL passes Json as str)."""
+    if value is None:
+        return default
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except (ValueError, TypeError):
+            return default
+    return value
 
 logger = logging.getLogger("weather.qc")
 NAMESPACE = "weather.QC"
@@ -190,10 +208,60 @@ def handle_aggregate_region_qc(params: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def handle_render_qc_chart(params: dict[str, Any]) -> dict[str, Any]:
+    """Render a QC summary as a per-element bar chart (SVG) + an HTML page.
+
+    Takes the ``summary_json`` either SummarizeQualityFlags (`quality_summary`)
+    or AggregateRegionQC (`region_summary`) emits — both carry ``by_element`` and
+    ``by_flag``; a region summary also carries ``worst_stations``. Writes
+    ``qc.svg`` + ``qc.html`` (sidecar-backed, through the storage abstraction so
+    it lands in durable storage on any backend) and returns their paths.
+    """
+    summary = _coerce_json(params.get("summary_json"), {})
+    title = params.get("title") or "Data quality"
+    label = params.get("label") or ""
+    step_log = params.get("_step_log")
+
+    by_element = summary.get("by_element", {})
+    by_flag = summary.get("by_flag", {})
+    worst_stations = summary.get("worst_stations", [])  # region-only; [] for a station
+    pct = summary.get("flagged_pct", 0.0)
+    total = summary.get("total_obs", 0)
+    narrative = (
+        f"{pct}% of {total:,} observations failed QC."
+        if total else "No observations to chart."
+    )
+
+    svg = qc_chart.flagged_pct_bars_svg(by_element, title=title)
+    html = qc_chart.qc_html(title=title, label=label, svg=svg, by_flag=by_flag,
+                            worst_stations=worst_stations, summary=narrative)
+
+    storage = get_storage()
+    slug = re.sub(r"[^A-Za-z0-9]+", "_", (label or title)).strip("_") or "qc"
+    out_dir = sidecar.cache_path("noaa-weather", _VIZ_CACHE_TYPE, slug, storage)
+
+    def _write(name: str, text: str, kind: str) -> str:
+        path = storage.join(out_dir, name)
+        body = text.encode("utf-8")
+        storage.write_text_atomic(path, text)
+        sidecar.write_sidecar("noaa-weather", _VIZ_CACHE_TYPE, f"{slug}/{name}",
+                              kind="file", size_bytes=len(body),
+                              sha256=hashlib.sha256(body).hexdigest(),
+                              tool={"name": "qc_chart", "version": "1.0"},
+                              extra={"content_kind": kind, "label": label}, storage=storage)
+        return path
+
+    svg_path = _write("qc.svg", svg, "svg")
+    html_path = _write("qc.html", html, "html")
+    _step_log(step_log, f"Rendered QC chart for {label or title} -> {html_path}", "success")
+    return {"html_path": html_path, "svg_path": svg_path, "narrative": narrative}
+
+
 # Dispatch table
 _DISPATCH: dict[str, Any] = {
     f"{NAMESPACE}.SummarizeQualityFlags": handle_summarize_quality_flags,
     f"{NAMESPACE}.AggregateRegionQC": handle_aggregate_region_qc,
+    f"{NAMESPACE}.RenderQCChart": handle_render_qc_chart,
 }
 
 

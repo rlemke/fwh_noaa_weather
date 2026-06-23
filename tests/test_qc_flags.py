@@ -187,3 +187,52 @@ def test_region_empty_reports_zeros_not_none():
     assert agg["flagged_pct"] == 0.0
     assert agg["by_flag"] == {}
     assert agg["worst_stations"] == []
+
+
+# ---------------------------------------------------------------------------
+# QC chart rendering (dependency-free SVG)
+# ---------------------------------------------------------------------------
+
+from _noaa_tools import qc_chart  # noqa: E402
+
+
+def test_chart_svg_has_a_bar_per_element_with_pct_labels():
+    by_element = {
+        "TMAX": {"total": 1000, "flagged": 5, "pct": 0.5},
+        "TMIN": {"total": 1000, "flagged": 50, "pct": 5.0},
+    }
+    svg = qc_chart.flagged_pct_bars_svg(by_element, title="QC")
+    assert svg.startswith("<svg")
+    assert "</svg>" in svg
+    assert "TMAX" in svg and "TMIN" in svg
+    assert "0.5%" in svg and "5.0%" in svg
+    # Two element rows → at least two filled <rect> bars (plus track rects).
+    assert svg.count("<rect") >= 4
+
+
+def test_chart_severity_color_scales_with_pct():
+    assert qc_chart._severity_color(0.0) == "#27ae60"   # clean → green
+    assert qc_chart._severity_color(0.3) == "#f1c40f"   # amber
+    assert qc_chart._severity_color(5.0) == "#c0392b"   # heavy → red
+
+
+def test_chart_empty_elements_renders_placeholder_not_crash():
+    svg = qc_chart.flagged_pct_bars_svg({}, title="QC")
+    assert "no data" in svg
+    assert svg.startswith("<svg")
+
+
+def test_html_embeds_chart_flag_table_and_worst_stations():
+    by_element = {"TMIN": {"total": 100, "flagged": 5, "pct": 5.0}}
+    svg = qc_chart.flagged_pct_bars_svg(by_element)
+    html = qc_chart.qc_html(
+        title="Data quality — MN", label="MN", svg=svg,
+        by_flag={"I": {"count": 12, "label": "failed internal consistency check"}},
+        worst_stations=[{"station_id": "USX", "station_name": "BERG",
+                         "flagged_pct": 0.4, "flagged_obs": 5, "total_obs": 1000}],
+        summary="0.25% of 529,179 observations failed QC.",
+    )
+    assert "<svg" in html
+    assert "failed internal consistency check" in html  # flag table
+    assert "USX" in html and "BERG" in html              # worst-stations table
+    assert "Worst stations" in html

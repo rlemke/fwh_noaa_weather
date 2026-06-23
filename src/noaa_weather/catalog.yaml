@@ -68,6 +68,33 @@ workflows:
       start_year: Int
       end_year: Int
 
+  - qualified_name: weather.workflows.VisualizeStationQuality
+    summary: >-
+      One station's data quality AS A CHART: summarize its Q-flagged
+      observations, then render a self-contained HTML page with a per-element
+      flagged-% bar chart + which-check-tripped table. Returns html_path.
+    tags: [climate, quality-control, qc, data-quality, chart, visualization, single-station]
+    entry_point: true
+    param_schema:
+      station_id: String
+      station_name: String
+      start_year: Int
+      end_year: Int
+
+  - qualified_name: weather.workflows.VisualizeRegionQuality
+    summary: >-
+      A region's data quality AS A CHART: discover the state's stations,
+      summarize each one's QC, aggregate, then render an HTML page with a
+      per-element flagged-% bar chart + worst-stations table. Returns html_path.
+    tags: [climate, quality-control, qc, data-quality, chart, visualization, region]
+    entry_point: true
+    param_schema:
+      country: String
+      state: String
+      max_stations: Int
+      start_year: Int
+      end_year: Int
+
   - qualified_name: weather.workflows.DetectStationExtremeEvents
     summary: >-
       Find the extreme weather events in one GHCN-Daily station's record — heat
@@ -353,6 +380,17 @@ facets:
       of percentages) plus per-element / per-check breakdowns and a
       worst-stations ranking. Reads stored rollups; no downloads.
     signature: "AggregateRegionQC(country: String, state: String, start_year: Int = 1944, end_year: Int = 2026, station_count: Int = 0) => (region_summary: Json, narrative: String, flagged_pct: Double, station_count: Int)"
+    effect: io
+    cost: cheap
+
+  - qualified_name: weather.QC.RenderQCChart
+    namespace: weather.QC
+    purpose: >-
+      Render a QC summary (station `quality_summary` or region `region_summary`)
+      as a dependency-free SVG bar chart of per-element flagged % + a
+      which-check-tripped table (+ worst-stations for a region) in a
+      self-contained HTML page. No matplotlib.
+    signature: "RenderQCChart(summary_json: Json, title: String = \"Data quality\", label: String = \"\") => (html_path: String, svg_path: String, narrative: String)"
     effect: io
     cost: cheap
 
