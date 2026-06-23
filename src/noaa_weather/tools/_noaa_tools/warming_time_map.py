@@ -40,7 +40,7 @@ from . import (  # noqa: E402
     sidecar,
     warming_map,
 )
-from .storage import LocalStorage, Storage  # noqa: E402
+from .storage import Storage, get_storage  # noqa: E402
 
 logger = logging.getLogger("noaa-weather.warming-time-map")
 
@@ -68,7 +68,7 @@ def rebuild_time_maps(
     ``None`` when there's no data to render (e.g. no reports, or
     reports missing the ``annual`` / ``anomalies`` arrays).
     """
-    s = storage or LocalStorage()
+    s = storage or get_storage()
     features, year_range = _collect_features(s)
     if not features or year_range is None:
         logger.info("no time-series features — skipping slider maps")
@@ -79,17 +79,17 @@ def rebuild_time_maps(
     year_min, year_max = year_range
     years = list(range(year_min, year_max + 1))
 
-    out_dir = Path(sidecar.cache_dir(NAMESPACE, CACHE_TYPE, s))
-    out_dir.mkdir(parents=True, exist_ok=True)
+    # Write through the storage abstraction (local path or s3://MinIO).
+    cache_dir = sidecar.cache_dir(NAMESPACE, CACHE_TYPE, s)
 
-    point_path = out_dir / POINT_MAP_RELATIVE_PATH
+    point_path = s.join(cache_dir, POINT_MAP_RELATIVE_PATH)
     point_html = _render_point_map(features, years)
-    point_path.write_text(point_html, encoding="utf-8")
+    s.write_text_atomic(point_path, point_html)
     _write_sidecar(s, POINT_MAP_RELATIVE_PATH, point_html, mode="point")
 
-    trend_path = out_dir / TREND_MAP_RELATIVE_PATH
+    trend_path = s.join(cache_dir, TREND_MAP_RELATIVE_PATH)
     trend_html = _render_trend_map(features, years)
-    trend_path.write_text(trend_html, encoding="utf-8")
+    s.write_text_atomic(trend_path, trend_html)
     _write_sidecar(s, TREND_MAP_RELATIVE_PATH, trend_html, mode="trend")
 
     logger.info(
@@ -111,19 +111,14 @@ def _collect_features(
     storage: Storage,
 ) -> tuple[list[dict[str, Any]], tuple[int, int] | None]:
     """Build the GeoJSON feature list + the union of all report year ranges."""
-    root = Path(sidecar.cache_dir(NAMESPACE, CACHE_TYPE, storage))
-    if not root.is_dir():
-        return [], None
-
     features: list[dict[str, Any]] = []
     year_min = 9999
     year_max = 0
 
-    for sidecar_path in root.rglob("report.html.meta.json"):
-        try:
-            side = json.loads(sidecar_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            logger.warning("skipping unreadable sidecar %s: %s", sidecar_path, exc)
+    # Storage-aware enumeration (works on local disk AND s3/MinIO).
+    for side in sidecar.list_entries(NAMESPACE, CACHE_TYPE, storage):
+        rel = side.get("relative_path", "")
+        if not (rel == "report.html" or rel.endswith("/report.html")):
             continue
         extra = side.get("extra") or {}
         region = extra.get("region") or {}
@@ -133,18 +128,17 @@ def _collect_features(
         if geometry is None:
             continue
 
-        # Load the report.json for per-year arrays. Readers that don't
-        # have this file (older bundles, hand-curated reports) are
-        # silently skipped.
-        bundle_dir = sidecar_path.parent
-        json_path = bundle_dir / "report.json"
-        if not json_path.is_file():
-            logger.info("skipping %s: no report.json", bundle_dir)
-            continue
+        # Load the report.json for per-year arrays via the storage abstraction
+        # (s3:// -> localized local file). Bundles without it (older /
+        # hand-curated reports) are silently skipped.
+        rel_dir = rel[:-len("/report.html")] if "/" in rel else ""
+        json_rel = f"{rel_dir}/report.json" if rel_dir else "report.json"
+        json_path = sidecar.cache_path(NAMESPACE, CACHE_TYPE, json_rel, storage)
         try:
-            report = json.loads(json_path.read_text(encoding="utf-8"))
+            with open(storage.localize(json_path), "r", encoding="utf-8") as f:
+                report = json.loads(f.read())
         except (OSError, json.JSONDecodeError) as exc:
-            logger.warning("skipping %s: %s", json_path, exc)
+            logger.info("skipping %s: %s", json_rel, exc)
             continue
 
         anomalies = report.get("anomalies") or []
@@ -169,7 +163,6 @@ def _collect_features(
             year_min = min(year_min, year_range[0])
             year_max = max(year_max, year_range[1])
 
-        rel_dir = sidecar_path.parent.relative_to(root).as_posix()
         href = f"{rel_dir}/report.html"
         props: dict[str, Any] = {
             "name": region.get("label") or region.get("name") or rel_dir,

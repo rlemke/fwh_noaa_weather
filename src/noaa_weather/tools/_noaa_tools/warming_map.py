@@ -110,16 +110,11 @@ def rebuild_warming_map(storage: Storage | None = None) -> Path | None:
 
 def _collect_features(storage: Storage) -> list[dict[str, Any]]:
     """For each report, emit one GeoJSON Feature with the warming colour."""
-    root = Path(sidecar.cache_dir(NAMESPACE, CACHE_TYPE, storage))
-    if not root.is_dir():
-        return []
-
     features: list[dict[str, Any]] = []
-    for sidecar_path in root.rglob("report.html.meta.json"):
-        try:
-            data = json.loads(sidecar_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            logger.warning("skipping unreadable sidecar %s: %s", sidecar_path, exc)
+    # Storage-aware enumeration (works on local disk AND s3/MinIO).
+    for data in sidecar.list_entries(NAMESPACE, CACHE_TYPE, storage):
+        rel = data.get("relative_path", "")
+        if not (rel == "report.html" or rel.endswith("/report.html")):
             continue
         extra = data.get("extra") or {}
         region = extra.get("region") or {}
@@ -134,7 +129,7 @@ def _collect_features(storage: Storage) -> list[dict[str, Any]]:
         if geometry is None:
             continue
 
-        rel_dir = sidecar_path.parent.relative_to(root).as_posix()
+        rel_dir = rel[:-len("/report.html")] if "/" in rel else ""
         href = f"{rel_dir}/report.html"
         features.append(
             {

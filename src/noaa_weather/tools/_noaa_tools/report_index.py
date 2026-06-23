@@ -28,7 +28,7 @@ if str(_TOOLS_ROOT) not in sys.path:
     sys.path.insert(0, str(_TOOLS_ROOT))
 
 from . import sidecar  # noqa: E402
-from .storage import LocalStorage, Storage  # noqa: E402
+from .storage import Storage, get_storage  # noqa: E402
 
 logger = logging.getLogger("noaa-weather.report-index")
 
@@ -144,7 +144,7 @@ def rebuild_index(
     reports were found (no file is written in that case to avoid
     littering the cache with empty stubs).
     """
-    s = storage or LocalStorage()
+    s = storage or get_storage()
     reports = _discover_reports(s)
     if not reports:
         logger.info("no reports found — skipping index regen")
@@ -153,11 +153,10 @@ def rebuild_index(
     tree = _build_tree(reports)
     html = _render_index(tree, total=len(reports))
 
-    out_dir = Path(sidecar.cache_dir(NAMESPACE, CACHE_TYPE, s))
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / INDEX_RELATIVE_PATH
+    # Write through the storage abstraction (local path or s3://MinIO).
+    out_path = s.join(sidecar.cache_dir(NAMESPACE, CACHE_TYPE, s), INDEX_RELATIVE_PATH)
     body_bytes = html.encode("utf-8")
-    out_path.write_text(html, encoding="utf-8")
+    s.write_text_atomic(out_path, html)
 
     sidecar.write_sidecar(
         NAMESPACE,
@@ -184,64 +183,45 @@ def rebuild_index(
 def _discover_reports(storage: Storage) -> list[dict[str, Any]]:
     """Find every report bundle under the climate-report cache.
 
-    We key off ``report.html.meta.json`` sidecars because they encode
-    the full region block (country / state / path / label), the year
-    range, and the station count — everything the index needs without
-    re-reading the big JSON payload.
+    Storage-aware: enumerates sidecars via ``sidecar.list_entries`` (works on
+    local disk AND s3/MinIO), keying off each bundle's ``report.html`` sidecar
+    for the region block, and grouping the bundle's other artifacts for the
+    index's per-file links. Hrefs are each artifact's ``relative_path`` — already
+    relative to the climate-report root where ``index.html`` sits.
     """
-    root = Path(sidecar.cache_dir(NAMESPACE, CACHE_TYPE, storage))
-    if not root.is_dir():
-        return []
+    # Group every artifact by its bundle dir (relative_path's parent).
+    bundles: dict[str, dict[str, Any]] = {}
+    for data in sidecar.list_entries(NAMESPACE, CACHE_TYPE, storage):
+        rel = data.get("relative_path", "")
+        if "/" not in rel:
+            continue  # top-level derived pages (index.html, maps) aren't bundles
+        bundle_rel, name = rel.rsplit("/", 1)
+        b = bundles.setdefault(bundle_rel, {"files": {}, "html": None})
+        b["files"][name] = rel
+        if name == "report.html":
+            b["html"] = data
 
     out: list[dict[str, Any]] = []
-    for sidecar_path in root.rglob("report.html.meta.json"):
-        # Parent dir is ``<country>/<region>/``; the html itself is a
-        # sibling at ``report.html``.
-        bundle_dir = sidecar_path.parent
-        try:
-            data = json.loads(sidecar_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            logger.warning("skipping unreadable sidecar %s: %s", sidecar_path, exc)
-            continue
-
+    for bundle_rel, b in sorted(bundles.items()):
+        data = b["html"]
+        if data is None:
+            continue  # a dir without a report.html sidecar isn't a report bundle
         extra = data.get("extra") or {}
-        region = extra.get("region") or {}
-        relative_dir = bundle_dir.relative_to(root).as_posix()
-
         trend = extra.get("trend") or {}
         out.append(
             {
-                "bundle_dir": bundle_dir,
-                "relative_dir": relative_dir,
-                "region": region,
+                "relative_dir": bundle_rel,
+                "region": extra.get("region") or {},
                 "year_range": extra.get("year_range") or [None, None],
                 "baseline": extra.get("baseline") or [None, None],
                 "station_count": extra.get("station_count", 0),
                 "warming_rate_per_decade": trend.get("warming_rate_per_decade"),
                 "precip_change_pct": trend.get("precip_change_pct"),
                 "generated_at": data.get("generated_at", ""),
-                "files": _discover_bundle_files(bundle_dir),
+                "files": b["files"],
             }
         )
     return out
-
-
-def _discover_bundle_files(bundle_dir: Path) -> dict[str, str]:
-    """Return ``{filename: relative_href}`` for every non-sidecar file in the bundle.
-
-    Relative hrefs are relative to the index.html (which sits at the
-    climate-report cache-type root), so a bundle at
-    ``us/california/report.html`` has href ``us/california/report.html``.
-    """
-    root = bundle_dir.parent.parent  # climate-report/
-    files: dict[str, str] = {}
-    for entry in sorted(bundle_dir.iterdir()):
-        if entry.name.endswith(".meta.json"):
-            continue
-        if not entry.is_file():
-            continue
-        files[entry.name] = entry.relative_to(root).as_posix()
-    return files
 
 
 # ---------------------------------------------------------------------------

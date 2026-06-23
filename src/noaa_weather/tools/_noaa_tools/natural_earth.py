@@ -47,7 +47,7 @@ if str(_TOOLS_ROOT) not in sys.path:
     sys.path.insert(0, str(_TOOLS_ROOT))
 
 from . import sidecar  # noqa: E402
-from .storage import LocalStorage, Storage, local_staging_subdir  # noqa: E402
+from .storage import Storage, get_storage, local_staging_subdir  # noqa: E402
 
 try:
     import requests
@@ -145,7 +145,7 @@ def download_admin1(
     ``resolve_state_polygon`` call in this process (and future
     processes, since the cache is on disk).
     """
-    s = storage or LocalStorage()
+    s = storage or get_storage()
     art_path = sidecar.cache_path(NAMESPACE, CACHE_TYPE, ADMIN1_RELATIVE_PATH, s)
 
     with _lock:
@@ -270,7 +270,8 @@ def _load_index(storage: Storage, *, use_mock: bool) -> dict[str, list[dict[str,
         download_admin1(storage=storage, use_mock=use_mock)
 
     path = sidecar.cache_path(NAMESPACE, CACHE_TYPE, ADMIN1_RELATIVE_PATH, storage)
-    with open(path, "r", encoding="utf-8") as f:
+    # localize: s3:// -> a real local file for open(); local -> itself.
+    with open(storage.localize(path), "r", encoding="utf-8") as f:
         data = json.load(f)
 
     bucketed: dict[str, list[dict[str, Any]]] = {}
@@ -311,7 +312,7 @@ def resolve_state_polygon(
     """
     if not country or not state:
         return None
-    s = storage or LocalStorage()
+    s = storage or get_storage()
 
     try:
         index = _load_index(s, use_mock=use_mock)
