@@ -52,6 +52,22 @@ workflows:
       start_year: Int
       end_year: Int
 
+  - qualified_name: weather.workflows.SummarizeRegionQuality
+    summary: >-
+      Region-level data quality: discover a state's stations, count each one's
+      Q-flagged (failed-QC) observations, then aggregate into ONE
+      observation-weighted region rejection rate + per-element/per-check
+      breakdowns + a worst-stations ranking. Answers "how trustworthy is this
+      region's climate record overall, and which stations drag it down?".
+    tags: [climate, quality-control, qc, data-quality, ghcn, region, aggregate]
+    entry_point: true
+    param_schema:
+      country: String
+      state: String
+      max_stations: Int
+      start_year: Int
+      end_year: Int
+
   - qualified_name: weather.workflows.DetectStationExtremeEvents
     summary: >-
       Find the extreme weather events in one GHCN-Daily station's record — heat
@@ -325,9 +341,20 @@ facets:
       GHCN CSV and COUNT the Q-flagged observations the analysis silently drops
       — overall flagged %, plus breakdowns per element, per year, and per
       QC-check letter (D=duplicate, G=gap, O=outlier, …).
-    signature: "SummarizeQualityFlags(station_id: String, start_year: Int = 1944, end_year: Int = 2026) => (quality_summary: Json, flagged_pct: Double, total_obs: Int, narrative: String, station_id: String)"
+    signature: "SummarizeQualityFlags(station_id: String, station_name: String = \"\", state: String = \"\", start_year: Int = 1944, end_year: Int = 2026) => (quality_summary: Json, flagged_pct: Double, total_obs: Int, narrative: String, station_id: String)"
     effect: external
     cost: moderate
+
+  - qualified_name: weather.QC.AggregateRegionQC
+    namespace: weather.QC
+    purpose: >-
+      Roll the per-station QC rollups persisted by SummarizeQualityFlags up to a
+      region: ONE observation-weighted rejection rate (counts summed, not a mean
+      of percentages) plus per-element / per-check breakdowns and a
+      worst-stations ranking. Reads stored rollups; no downloads.
+    signature: "AggregateRegionQC(country: String, state: String, start_year: Int = 1944, end_year: Int = 2026, station_count: Int = 0) => (region_summary: Json, narrative: String, flagged_pct: Double, station_count: Int)"
+    effect: io
+    cost: cheap
 
   - qualified_name: weather.Analysis.AnalyzeStationMonthly
     namespace: weather.Analysis

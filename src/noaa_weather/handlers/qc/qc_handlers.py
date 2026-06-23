@@ -17,7 +17,10 @@ import time
 from typing import Any
 
 from ..shared.ghcn_utils import (
+    QCSummaryStore,
+    aggregate_region_qc,
     download_station_csv,
+    get_weather_db,
     summarize_quality_flags,
 )
 
@@ -71,6 +74,8 @@ def handle_summarize_quality_flags(params: dict[str, Any]) -> dict[str, Any]:
     short narrative and the headline flagged percentage.
     """
     station_id = params.get("station_id", "")
+    station_name = params.get("station_name", "")
+    state = params.get("state", "")
     start_year = int(params.get("start_year", 1944))
     end_year = int(params.get("end_year", 2026))
     step_log = params.get("_step_log")
@@ -81,6 +86,26 @@ def handle_summarize_quality_flags(params: dict[str, Any]) -> dict[str, Any]:
     csv_path = download_station_csv(station_id)
     summary = summarize_quality_flags(csv_path, start_year, end_year)
     narrative = _headline(summary, station_id)
+
+    # Best-effort persist a per-station rollup so AggregateRegionQC can read it
+    # back by region (same pattern as DetectStationExtremes -> AggregateRegion-
+    # Extremes). Tagged with `location` (the state) for the region filter; we
+    # store the counts (not just %) so the region rollup re-weights correctly.
+    try:
+        QCSummaryStore(get_weather_db()).upsert_station({
+            "station_id": station_id,
+            "station_name": station_name,
+            "location": state,
+            "start_year": start_year,
+            "end_year": end_year,
+            "total_obs": summary["total_obs"],
+            "flagged_obs": summary["flagged_obs"],
+            "flagged_pct": summary["flagged_pct"],
+            "by_element": summary["by_element"],
+            "by_flag": summary["by_flag"],
+        })
+    except Exception as exc:  # noqa: BLE001 - persistence is best-effort
+        logger.warning("Could not persist QC rollup for %s: %s", station_id, exc)
 
     elapsed = time.monotonic() - t0
     _step_log(
@@ -98,9 +123,77 @@ def handle_summarize_quality_flags(params: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _region_headline(agg: dict[str, Any], region: str) -> str:
+    """One-line region credibility statement from the aggregate."""
+    n = agg["station_count"]
+    total = agg["total_obs"]
+    if n == 0 or total == 0:
+        return f"No quality-control data available for {region}."
+    parts = [
+        f"Across {n} station(s) in {region}, {agg['flagged_pct']}% of "
+        f"{total:,} observations failed QC ({agg['flagged_obs']:,} rejected)."
+    ]
+    by_flag = agg["by_flag"]
+    if by_flag:
+        top_letter, top_rec = next(iter(by_flag.items()))
+        parts.append(
+            f"Most common check: {top_letter} ({top_rec['label']}), "
+            f"{top_rec['count']:,} obs."
+        )
+    worst = agg["worst_stations"]
+    if worst:
+        w = worst[0]
+        label = w["station_name"] or w["station_id"]
+        parts.append(f"Worst station: {label} at {w['flagged_pct']}%.")
+    return " ".join(parts)
+
+
+def handle_aggregate_region_qc(params: dict[str, Any]) -> dict[str, Any]:
+    """Handle AggregateRegionQC — roll per-station QC rates up to a region.
+
+    Reads the per-station QC rollups persisted by SummarizeQualityFlags
+    (filtered by location/state), and computes one observation-weighted region
+    rejection rate plus per-element / per-check breakdowns and a worst-stations
+    ranking. `station_count` is the dependency signal (pass
+    discovery.station_count) so this waits for the foreach to finish — the same
+    pattern as ComputeRegionTrend / AggregateRegionExtremes.
+    """
+    country = params.get("country", "US")
+    state = params.get("state", "")
+    region = state or country
+    step_log = params.get("_step_log")
+
+    try:
+        store = QCSummaryStore(get_weather_db())
+    except Exception as exc:  # noqa: BLE001 - no DB -> empty aggregate, not a crash
+        logger.warning("MongoDB unavailable for region QC aggregate: %s", exc)
+        empty = {"region": region, "station_count": 0, "total_obs": 0,
+                 "flagged_obs": 0, "flagged_pct": 0.0}
+        return {"region_summary": json.dumps(empty),
+                "narrative": f"No quality-control data available for {region}.",
+                "flagged_pct": 0.0, "station_count": 0}
+
+    per_station = store.find_for_region(state)
+    agg = aggregate_region_qc(per_station, region_label=region)
+    narrative = _region_headline(agg, region)
+    try:
+        store.upsert_region(state, agg)
+    except Exception:  # noqa: BLE001 - best-effort
+        pass
+
+    _step_log(step_log, narrative, "success")
+    return {
+        "region_summary": json.dumps(agg),
+        "narrative": narrative,
+        "flagged_pct": agg["flagged_pct"],
+        "station_count": agg["station_count"],
+    }
+
+
 # Dispatch table
 _DISPATCH: dict[str, Any] = {
     f"{NAMESPACE}.SummarizeQualityFlags": handle_summarize_quality_flags,
+    f"{NAMESPACE}.AggregateRegionQC": handle_aggregate_region_qc,
 }
 
 

@@ -16,7 +16,11 @@ sys.path.insert(
     os.path.join(os.path.dirname(__file__), "..", "src", "noaa_weather", "tools"),
 )
 
-from _noaa_tools.ghcn_qc import QFLAG_MEANINGS, summarize_quality_flags  # noqa: E402
+from _noaa_tools.ghcn_qc import (  # noqa: E402
+    QFLAG_MEANINGS,
+    aggregate_region_qc,
+    summarize_quality_flags,
+)
 
 # GHCN CSV columns: ID, DATE, ELEMENT, DATA_VALUE, M_FLAG, Q_FLAG, S_FLAG, OBS_TIME
 HEADER = "ID,DATE,ELEMENT,DATA_VALUE,M_FLAG,Q_FLAG,S_FLAG,OBS_TIME\n"
@@ -111,3 +115,75 @@ def test_worst_cells_ranked_and_year_filter_applies(tmp_path):
     assert s["worst"][1]["element"] == "TMAX"
     assert s["worst"][1]["pct"] == 50.0
     assert "1980" not in s["by_year"]
+
+
+# ---------------------------------------------------------------------------
+# Region-level aggregation
+# ---------------------------------------------------------------------------
+
+
+def _station_rollup(station_id, name, total, flagged, by_element, by_flag):
+    return {
+        "station_id": station_id,
+        "station_name": name,
+        "total_obs": total,
+        "flagged_obs": flagged,
+        "flagged_pct": round(100.0 * flagged / total, 2) if total else 0.0,
+        "by_element": by_element,
+        "by_flag": by_flag,
+    }
+
+
+def test_region_rate_is_observation_weighted_not_a_mean_of_pcts():
+    # Big clean station + tiny dirty station. A naive mean of percentages would
+    # report ~50%; the observation-weighted rate is 2/10002 ≈ 0.02%.
+    big = _station_rollup(
+        "USBIG", "Big", 10000, 0,
+        {"TMAX": {"total": 10000, "flagged": 0, "pct": 0.0}}, {},
+    )
+    tiny = _station_rollup(
+        "USTINY", "Tiny", 2, 2,
+        {"TMAX": {"total": 2, "flagged": 2, "pct": 100.0}},
+        {"O": {"count": 2, "label": QFLAG_MEANINGS["O"]}},
+    )
+    agg = aggregate_region_qc([big, tiny], region_label="NY")
+
+    assert agg["station_count"] == 2
+    assert agg["total_obs"] == 10002
+    assert agg["flagged_obs"] == 2
+    assert agg["flagged_pct"] == 0.02  # weighted, not 50
+    assert agg["by_element"]["TMAX"] == {"total": 10002, "flagged": 2, "pct": 0.02}
+    assert agg["by_flag"]["O"]["count"] == 2
+    # Worst station surfaces the tiny dirty record.
+    assert agg["worst_stations"][0]["station_id"] == "USTINY"
+    assert agg["worst_stations"][0]["flagged_pct"] == 100.0
+
+
+def test_region_sums_flags_across_stations():
+    a = _station_rollup(
+        "USA", "A", 100, 3,
+        {"PRCP": {"total": 100, "flagged": 3, "pct": 3.0}},
+        {"G": {"count": 3, "label": QFLAG_MEANINGS["G"]}},
+    )
+    b = _station_rollup(
+        "USB", "B", 100, 5,
+        {"PRCP": {"total": 100, "flagged": 5, "pct": 5.0}},
+        {"G": {"count": 2, "label": QFLAG_MEANINGS["G"]},
+         "O": {"count": 3, "label": QFLAG_MEANINGS["O"]}},
+    )
+    agg = aggregate_region_qc([a, b], region_label="NY")
+
+    assert agg["by_flag"]["G"]["count"] == 5  # 3 + 2
+    assert agg["by_flag"]["O"]["count"] == 3
+    # Sorted by descending count → G (5) before O (3).
+    assert next(iter(agg["by_flag"])) == "G"
+    assert agg["by_element"]["PRCP"]["flagged"] == 8
+
+
+def test_region_empty_reports_zeros_not_none():
+    agg = aggregate_region_qc([], region_label="NV")
+    assert agg["station_count"] == 0
+    assert agg["total_obs"] == 0
+    assert agg["flagged_pct"] == 0.0
+    assert agg["by_flag"] == {}
+    assert agg["worst_stations"] == []

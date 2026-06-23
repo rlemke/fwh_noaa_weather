@@ -171,3 +171,83 @@ def summarize_quality_flags(
         "by_flag": by_flag_out,
         "worst": worst,
     }
+
+
+def aggregate_region_qc(
+    per_station: list[dict[str, Any]],
+    *,
+    region_label: str = "",
+    worst_limit: int = 10,
+) -> dict[str, Any]:
+    """Roll per-station QC summaries up into one region-wide rejection rate.
+
+    Each input is a per-station rollup as persisted by the QC handler — it must
+    carry ``total_obs`` / ``flagged_obs`` and the ``by_element`` / ``by_flag``
+    breakdowns (the same shapes :func:`summarize_quality_flags` returns). The
+    region flagged % is **observation-weighted** (summed counts, not a mean of
+    per-station percentages) so a tiny station can't swing the headline, and the
+    same per-element / per-check breakdowns are summed across stations. Returns
+    zeros (never ``None``) for an empty region.
+
+    Also returns ``worst_stations`` — the stations with the highest rejection
+    rate — so a reader can see whether the region's flags are spread evenly or
+    concentrated in a few bad records.
+    """
+    station_count = len(per_station)
+    total = sum(int(s.get("total_obs", 0)) for s in per_station)
+    flagged = sum(int(s.get("flagged_obs", 0)) for s in per_station)
+
+    by_element: dict[str, dict[str, int]] = {}
+    by_flag: dict[str, int] = {}
+    for s in per_station:
+        for elem, rec in (s.get("by_element") or {}).items():
+            acc = by_element.setdefault(elem, {"total": 0, "flagged": 0})
+            acc["total"] += int(rec.get("total", 0))
+            acc["flagged"] += int(rec.get("flagged", 0))
+        for letter, rec in (s.get("by_flag") or {}).items():
+            # Persisted rollups store {count, label}; tolerate a bare int too.
+            count = rec.get("count", 0) if isinstance(rec, dict) else int(rec)
+            by_flag[letter] = by_flag.get(letter, 0) + int(count)
+
+    by_element_out = {
+        elem: {
+            "total": rec["total"],
+            "flagged": rec["flagged"],
+            "pct": _pct(rec["flagged"], rec["total"]),
+        }
+        for elem, rec in sorted(by_element.items())
+    }
+    by_flag_out = {
+        letter: {
+            "count": count,
+            "label": QFLAG_MEANINGS.get(letter, "unknown flag"),
+        }
+        for letter, count in sorted(by_flag.items(), key=lambda kv: (-kv[1], kv[0]))
+    }
+    worst_stations = sorted(
+        (
+            {
+                "station_id": s.get("station_id", ""),
+                "station_name": s.get("station_name", ""),
+                "total_obs": int(s.get("total_obs", 0)),
+                "flagged_obs": int(s.get("flagged_obs", 0)),
+                "flagged_pct": s.get(
+                    "flagged_pct", _pct(int(s.get("flagged_obs", 0)), int(s.get("total_obs", 0)))
+                ),
+            }
+            for s in per_station
+            if int(s.get("flagged_obs", 0)) > 0
+        ),
+        key=lambda c: (-c["flagged_pct"], -c["flagged_obs"], c["station_id"]),
+    )[:worst_limit]
+
+    return {
+        "region": region_label,
+        "station_count": station_count,
+        "total_obs": total,
+        "flagged_obs": flagged,
+        "flagged_pct": _pct(flagged, total),
+        "by_element": by_element_out,
+        "by_flag": by_flag_out,
+        "worst_stations": worst_stations,
+    }

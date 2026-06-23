@@ -236,8 +236,19 @@ namespace weather.QC {
       * plus breakdowns per element, per year, and per QC-check letter
       * (D=duplicate, G=gap, O=climatological outlier, …). `quality_summary`
       * carries the full nested breakdown as JSON; `flagged_pct` is the
-      * headline share and `narrative` a one-line credibility statement. */
-    event facet SummarizeQualityFlags(station_id: String, start_year: Int = 1944, end_year: Int = 2026) => (quality_summary: Json, flagged_pct: Double, total_obs: Int, narrative: String, station_id: String) with Effect(kind = "external") with Cost(tier = "moderate")
+      * headline share and `narrative` a one-line credibility statement.
+      * Pass `state` to tag the persisted rollup so AggregateRegionQC can read
+      * it back by region. */
+    event facet SummarizeQualityFlags(station_id: String, station_name: String = "", state: String = "", start_year: Int = 1944, end_year: Int = 2026) => (quality_summary: Json, flagged_pct: Double, total_obs: Int, narrative: String, station_id: String) with Effect(kind = "external") with Cost(tier = "moderate")
+
+    /** Roll per-station QC rates up to a region.
+      * Reads the per-station rollups SummarizeQualityFlags persisted (filtered
+      * by state), and computes ONE observation-weighted region rejection rate
+      * plus per-element / per-check breakdowns and a worst-stations ranking.
+      * Reads stored rollups; no downloads.
+      * @param station_count Dependency signal — pass discovery.station_count so
+      *   this waits for all per-station QC steps before aggregating. */
+    event facet AggregateRegionQC(country: String, state: String, start_year: Int = 1944, end_year: Int = 2026, station_count: Int = 0) => (region_summary: Json, narrative: String, flagged_pct: Double, station_count: Int) with Effect(kind = "io") with Cost(tier = "cheap")
 }
 
 // ---------------------------------------------------------------------------
@@ -482,6 +493,22 @@ namespace weather.workflows {
         }
         qc = SummarizeQualityFlags(station_id = $.station_id, start_year = $.start_year, end_year = $.end_year)
         yield SummarizeStationQuality(flagged_pct = qc.flagged_pct, total_obs = qc.total_obs, narrative = qc.narrative)
+    }
+
+    /** Region-level quality-control: discover the region's stations, summarize
+      * each station's QC rejection rate, then aggregate into ONE observation-
+      * weighted region rate + per-element/per-check breakdowns + a worst-stations
+      * ranking — "how trustworthy is <state>'s climate record overall, and which
+      * stations drag it down?". DiscoverStations -> foreach SummarizeQualityFlags
+      * -> AggregateRegionQC. Supply country + state. */
+    workflow SummarizeRegionQuality(country: String = "US", state: String = "NY", max_stations: Int = 5, start_year: Int = 1944, end_year: Int = 2026) => (status: String, narrative: String) andThen {
+        discovery = DiscoverStations(country = $.country, state = $.state, max_stations = $.max_stations) andThen foreach station in discovery.stations {
+            qc = SummarizeQualityFlags(station_id = $.station.station_id, station_name = $.station.name, state = $.state, start_year = $.start_year, end_year = $.end_year) catch {
+                yield SummarizeRegionQuality(status = "partial_failure", narrative = "")
+            }
+        }
+        region = AggregateRegionQC(country = $.country, state = $.state, start_year = $.start_year, end_year = $.end_year, station_count = discovery.station_count)
+        yield SummarizeRegionQuality(status = "completed", narrative = region.narrative)
     }
 
     /** Detect extreme weather events for a single station (heat waves, cold

@@ -125,7 +125,7 @@ still needs matplotlib (absent in the runners).
 | `marine/` | NDBC buoy catalog + observations |
 | `report/` | Per-station HTML, batch summaries, warming maps |
 | `extremes/` | Extreme-event detection (heat waves, cold snaps, wet/dry spells, heavy rain/snow) + SVG/HTML charts |
-| `qc/` | Quality-control surfacing — `SummarizeQualityFlags` re-reads the cached CSV and **counts** the Q-flagged observations the analysis silently drops (overall %, per element, per year, per QC-check letter), so a reader can see what share of the record was rejected. Pure counting in `tools/_noaa_tools/ghcn_qc.py`. |
+| `qc/` | Quality-control surfacing — `SummarizeQualityFlags` re-reads the cached CSV and **counts** the Q-flagged observations the analysis silently drops (overall %, per element, per year, per QC-check letter), so a reader can see what share of the record was rejected. `AggregateRegionQC` rolls the per-station rollups (persisted via `QCSummaryStore`, same persist+readback pattern as `ComputeRegionTrend`) up to ONE **observation-weighted** region rate + worst-stations ranking. Pure counting/aggregation in `tools/_noaa_tools/ghcn_qc.py`. |
 
 Each module exposes `register_handlers(runner)` for the RegistryRunner;
 all of them are wired into `register_all_registry_handlers` in

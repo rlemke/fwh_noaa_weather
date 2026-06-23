@@ -71,6 +71,7 @@ from noaa_weather.tools._noaa_tools.ghcn_parse import (  # noqa: F401
 )
 from noaa_weather.tools._noaa_tools.ghcn_qc import (  # noqa: F401
     QFLAG_MEANINGS,
+    aggregate_region_qc,
     summarize_quality_flags,
 )
 
@@ -323,6 +324,42 @@ class ExtremeEventStore:
         )
 
 
+class QCSummaryStore:
+    """Mongo wrapper for ``weather_qc_stations`` (per-station QC rollups) and
+    ``weather_qc_regions`` (region aggregates). Mirrors ExtremeEventStore:
+    SummarizeQualityFlags upserts one doc per station (tagged with ``location``),
+    AggregateRegionQC reads them back by location and writes the rolled-up
+    region rejection rate."""
+
+    def __init__(self, db: Any) -> None:
+        self.stations = db["weather_qc_stations"]
+        self.regions = db["weather_qc_regions"]
+        self._ensure_indexes()
+
+    def _ensure_indexes(self) -> None:
+        self.stations.create_index([("station_id", 1)], unique=True)
+        self.stations.create_index([("location", 1)])
+
+    def upsert_station(self, doc: dict[str, Any]) -> None:
+        import datetime as _dt
+        self.stations.update_one(
+            {"station_id": doc["station_id"]},
+            {"$set": {**doc, "updated_at": _dt.datetime.now(_dt.timezone.utc).isoformat()}},
+            upsert=True,
+        )
+
+    def find_for_region(self, location: str) -> list[dict[str, Any]]:
+        query = {"location": location} if location else {}
+        return list(self.stations.find(query, {"_id": 0}))
+
+    def upsert_region(self, location: str, aggregate: dict[str, Any]) -> None:
+        self.regions.update_one(
+            {"location": location},
+            {"$set": {"location": location, **aggregate}},
+            upsert=True,
+        )
+
+
 __all__ = [
     # Parser re-exports.
     "US_STATE_BOUNDS",
@@ -335,6 +372,8 @@ __all__ = [
     # QC-flag surfacing re-exports.
     "QFLAG_MEANINGS",
     "summarize_quality_flags",
+    "aggregate_region_qc",
+    "QCSummaryStore",
     # Analysis re-exports.
     "aggregate_region_trend",
     "compute_yearly_summaries",
