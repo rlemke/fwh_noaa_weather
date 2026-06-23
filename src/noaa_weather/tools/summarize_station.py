@@ -57,7 +57,7 @@ from _noaa_tools import (  # noqa: E402
     ghcn_parse,
     sidecar,
 )
-from _noaa_tools.storage import LocalStorage  # noqa: E402
+from _noaa_tools.storage import get_storage, local_staging_subdir  # noqa: E402
 
 NAMESPACE = "noaa-weather"
 CACHE_TYPE = "climate-summary"
@@ -207,13 +207,12 @@ def _write_summary_to_cache(
     csv_sha: str,
 ) -> str:
     relative_path = f"{station_id}.json"
-    storage = LocalStorage()
+    storage = get_storage()
 
     body = json.dumps(output, indent=2, sort_keys=True) + "\n"
     body_bytes = body.encode("utf-8")
 
-    staging_dir = sidecar.staging_dir(NAMESPACE, CACHE_TYPE, storage)
-    os.makedirs(staging_dir, exist_ok=True)
+    staging_dir = local_staging_subdir(f"{NAMESPACE}/{CACHE_TYPE}")  # always local
     stage_path = os.path.join(staging_dir, f"{station_id}.json.stage-{os.getpid()}")
     with open(stage_path, "wb") as f:
         f.write(body_bytes)

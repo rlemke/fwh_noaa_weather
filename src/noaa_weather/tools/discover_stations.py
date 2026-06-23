@@ -32,7 +32,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _noaa_tools import geofabrik_regions, ghcn_download, ghcn_parse, sidecar  # noqa: E402
-from _noaa_tools.storage import LocalStorage  # noqa: E402
+from _noaa_tools.storage import get_storage, local_staging_subdir  # noqa: E402
 
 NAMESPACE = "noaa-weather"
 CACHE_TYPE = "stations-discovered"
@@ -170,13 +170,12 @@ def main() -> int:
 def _write_to_cache(output: dict, *, country: str, state: str) -> None:
     """Persist the filtered station list as a cache artifact with sidecar."""
     relative_path = f"{country}/{state or 'ALL'}.json"
-    storage = LocalStorage()
+    storage = get_storage()
 
     body = json.dumps(output, indent=2, sort_keys=True) + "\n"
     body_bytes = body.encode("utf-8")
 
-    staging_dir = sidecar.staging_dir(NAMESPACE, CACHE_TYPE, storage)
-    os.makedirs(staging_dir, exist_ok=True)
+    staging_dir = local_staging_subdir(f"{NAMESPACE}/{CACHE_TYPE}")  # always local
     stage_name = f"{country}_{state or 'ALL'}.json.stage-{os.getpid()}"
     stage_path = os.path.join(staging_dir, stage_name)
     with open(stage_path, "wb") as f:
