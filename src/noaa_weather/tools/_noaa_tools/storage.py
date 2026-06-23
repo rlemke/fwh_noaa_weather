@@ -308,7 +308,22 @@ class HdfsStorage(Storage):
                 "facetwork.runtime.storage (requires the Facetwork runtime "
                 f"package). Underlying error: {exc}"
             ) from exc
-        self._backend = HDFSStorageBackend()
+        # Target the real namenode: take the host from AFL_DATA_ROOT
+        # (``hdfs://<host>[:port]/...``), else AFL_HDFS_HOST. Without this the
+        # backend defaults host to "default" and every WebHDFS call hits
+        # http://default:9870 (unreachable).
+        from urllib.parse import urlparse
+
+        host = os.environ.get("AFL_HDFS_HOST", "default")
+        port = 0
+        root = data_root("hdfs")
+        if root.startswith("hdfs://"):
+            parsed = urlparse(root)
+            if parsed.hostname:
+                host = parsed.hostname
+            if parsed.port:
+                port = parsed.port
+        self._backend = HDFSStorageBackend(host=host, port=port)
 
     @property
     def supports_locking(self) -> bool:
