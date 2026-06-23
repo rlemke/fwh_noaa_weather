@@ -388,9 +388,11 @@ def aggregate_region_trend(
         f"by {abs(precip_change_pct)}%."
     )
     if has_snow_data:
+        # Slope is the robust metric; snow_change_pct stays in the dict but not
+        # the sentence (noisy, can disagree in sign with the slope).
         narrative += (
             f" Annual snowfall has {'increased' if snow_per_decade_mm > 0 else 'decreased'} "
-            f"by {abs(snow_per_decade_mm)}mm per decade ({abs(snow_change_pct)}%)."
+            f"by {abs(snow_per_decade_mm)}mm per decade."
         )
 
     return {

@@ -251,9 +251,12 @@ def handle_compute_region_trend(params: dict[str, Any]) -> dict[str, Any]:
         f"by {abs(precip_change_pct)}%."
     )
     if has_snow_data:
+        # Report the regression SLOPE (robust); snow_change_pct (first-vs-last
+        # year) is kept in the trend JSON but not the sentence — it's noisy and
+        # can disagree in sign with the slope.
         narrative += (
             f" Annual snowfall has {'increased' if snow_per_decade_mm > 0 else 'decreased'} "
-            f"by {abs(snow_per_decade_mm)}mm per decade ({abs(snow_change_pct)}%)."
+            f"by {abs(snow_per_decade_mm)}mm per decade."
         )
 
     trend = {

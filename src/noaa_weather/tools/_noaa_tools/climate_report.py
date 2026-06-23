@@ -487,8 +487,7 @@ def _render_markdown(report: dict[str, Any], chart_files: list[str]) -> str:
     )
     if trend.get("has_snow_data"):
         lines.append(
-            f"- **Snowfall change**: {trend['snow_per_decade_mm']:+.1f} mm / decade "
-            f"({trend['snow_change_pct']:+.1f} %)"
+            f"- **Snowfall change**: {trend['snow_per_decade_mm']:+.1f} mm / decade"
         )
     lines.append("")
     lines.append("## Charts")
