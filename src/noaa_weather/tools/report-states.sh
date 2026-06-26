@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# summary: Generate a climate report for every US state (or a subset).
 # Generate a climate report for every US state (or a subset), using the
 # Geofabrik region path as the spatial filter for each one.
 #

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# summary: Generate climate reports for every Geofabrik continent + sub-region (whole index).
 # Generate climate reports for every top-level Geofabrik continent +
 # every sub-region beneath each one. Covers essentially the whole
 # index in ~8 command invocations.

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# summary: Install the Python dependencies the noaa-weather tools need.
 # Install Python dependencies required by the noaa-weather tool set.
 #
 # Currently:
