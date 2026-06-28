@@ -7,19 +7,19 @@ Two backends are supported:
   (soft-imported; only loaded when the backend is selected). HDFS uses
   WebHDFS over HTTP, so no Hadoop native libraries are required.
 
-The backend is chosen by ``AFL_STORAGE`` or the tool's ``--backend`` flag.
+The backend is chosen by ``FW_STORAGE`` or the tool's ``--backend`` flag.
 
-Filesystem layout is rooted at ``AFL_DATA_ROOT`` with five derived
+Filesystem layout is rooted at ``FW_DATA_ROOT`` with five derived
 subtrees (see ``agent-spec/cache-layout.agent-spec.yaml``):
 
-- ``AFL_DATA_ROOT/cache/``    — durable cached artifacts
-- ``AFL_DATA_ROOT/staging/``  — in-flight downloads, atomically renamed on success
-- ``AFL_DATA_ROOT/tmp/``      — scratch
-- ``AFL_DATA_ROOT/_indexes/`` — lazy cache-type indexes (advisory)
-- ``AFL_DATA_ROOT/locks/``    — per-entry fcntl lock targets
+- ``FW_DATA_ROOT/cache/``    — durable cached artifacts
+- ``FW_DATA_ROOT/staging/``  — in-flight downloads, atomically renamed on success
+- ``FW_DATA_ROOT/tmp/``      — scratch
+- ``FW_DATA_ROOT/_indexes/`` — lazy cache-type indexes (advisory)
+- ``FW_DATA_ROOT/locks/``    — per-entry fcntl lock targets
 
-Each derived root is also individually overridable by ``AFL_CACHE_ROOT``,
-``AFL_STAGING_ROOT``, etc., for deployments that split them across
+Each derived root is also individually overridable by ``FW_CACHE_ROOT``,
+``FW_STAGING_ROOT``, etc., for deployments that split them across
 different volumes.
 
 Defaults:
@@ -308,13 +308,13 @@ class HdfsStorage(Storage):
                 "facetwork.runtime.storage (requires the Facetwork runtime "
                 f"package). Underlying error: {exc}"
             ) from exc
-        # Target the real namenode: take the host from AFL_DATA_ROOT
-        # (``hdfs://<host>[:port]/...``), else AFL_HDFS_HOST. Without this the
+        # Target the real namenode: take the host from FW_DATA_ROOT
+        # (``hdfs://<host>[:port]/...``), else FW_HDFS_HOST. Without this the
         # backend defaults host to "default" and every WebHDFS call hits
         # http://default:9870 (unreachable).
         from urllib.parse import urlparse
 
-        host = os.environ.get("AFL_HDFS_HOST", "default")
+        host = os.environ.get("FW_HDFS_HOST", "default")
         port = 0
         root = data_root("hdfs")
         if root.startswith("hdfs://"):
@@ -430,7 +430,7 @@ class HdfsStorage(Storage):
 class S3Storage(Storage):
     """S3 / MinIO backend — delegates to ``facetwork.runtime.storage`` (the same
     object store the platform writes step payloads to), so handlers that go
-    through the Storage abstraction work unchanged on ``AFL_STORAGE=s3``.
+    through the Storage abstraction work unchanged on ``FW_STORAGE=s3``.
 
     S3 has no directories or locking: ``mkdir_p`` is a no-op (key prefixes are
     implicit), ``lock`` yields (object PUT is atomic-on-close; single-writer
@@ -555,7 +555,7 @@ class S3Storage(Storage):
 # ---------------------------------------------------------------------------
 
 def default_backend() -> str:
-    return (os.environ.get("AFL_STORAGE") or "local").lower()
+    return (os.environ.get("FW_STORAGE") or "local").lower()
 
 
 def get_storage(backend: str | None = None) -> Storage:
@@ -578,10 +578,10 @@ def get_storage(backend: str | None = None) -> Storage:
 def data_root(backend: str | None = None) -> str:
     """Return the top-level data root.
 
-    ``AFL_DATA_ROOT`` overrides everything. Otherwise the backend-specific
+    ``FW_DATA_ROOT`` overrides everything. Otherwise the backend-specific
     default is used.
     """
-    env = os.environ.get("AFL_DATA_ROOT")
+    env = os.environ.get("FW_DATA_ROOT")
     if env:
         return env
     name = (backend or default_backend()).lower()
@@ -593,7 +593,7 @@ def data_root(backend: str | None = None) -> str:
 
 
 def _derived_root(env_var: str, subdir: str, backend: str | None = None) -> str:
-    """Return AFL_DATA_ROOT/<subdir>, or the env override if set."""
+    """Return FW_DATA_ROOT/<subdir>, or the env override if set."""
     override = os.environ.get(env_var)
     if override:
         return override
@@ -602,27 +602,27 @@ def _derived_root(env_var: str, subdir: str, backend: str | None = None) -> str:
 
 def cache_root(backend: str | None = None) -> str:
     """Durable cached artifacts live here."""
-    return _derived_root("AFL_CACHE_ROOT", "cache", backend)
+    return _derived_root("FW_CACHE_ROOT", "cache", backend)
 
 
 def staging_root(backend: str | None = None) -> str:
     """In-flight downloads and builds live here until atomically renamed."""
-    return _derived_root("AFL_STAGING_ROOT", "staging", backend)
+    return _derived_root("FW_STAGING_ROOT", "staging", backend)
 
 
 def tmp_root(backend: str | None = None) -> str:
     """Scratch working area. Safe to wipe at any time."""
-    return _derived_root("AFL_TMP_ROOT", "tmp", backend)
+    return _derived_root("FW_TMP_ROOT", "tmp", backend)
 
 
 def indexes_root(backend: str | None = None) -> str:
     """Lazy, advisory cache-type indexes. Never authoritative."""
-    return _derived_root("AFL_INDEXES_ROOT", "_indexes", backend)
+    return _derived_root("FW_INDEXES_ROOT", "_indexes", backend)
 
 
 def locks_root(backend: str | None = None) -> str:
     """Per-entry fcntl lock targets for overwrite contention."""
-    return _derived_root("AFL_LOCKS_ROOT", "locks", backend)
+    return _derived_root("FW_LOCKS_ROOT", "locks", backend)
 
 
 # ---------------------------------------------------------------------------
@@ -633,13 +633,13 @@ def locks_root(backend: str | None = None) -> str:
 def local_scratch_root() -> str:
     """A guaranteed-LOCAL scratch root (never s3/hdfs).
 
-    ``AFL_DATA_ROOT`` may point at an object store (``s3://…``), which poisons
+    ``FW_DATA_ROOT`` may point at an object store (``s3://…``), which poisons
     the derived ``staging_root``/``tmp_root`` for EVERY backend — so they can't
     be trusted for the local-disk staging that downloads + read-through caches
-    require. ``AFL_LOCAL_SCRATCH`` is the explicit local scratch dir
+    require. ``FW_LOCAL_SCRATCH`` is the explicit local scratch dir
     (``.env``/fleet set it); fall back to a temp dir.
     """
-    return os.environ.get("AFL_LOCAL_SCRATCH") or os.path.join(
+    return os.environ.get("FW_LOCAL_SCRATCH") or os.path.join(
         tempfile.gettempdir(), "afl-scratch"
     )
 

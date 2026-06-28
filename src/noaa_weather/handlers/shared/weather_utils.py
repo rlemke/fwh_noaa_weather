@@ -55,7 +55,7 @@ def get_weather_db(db: Any = None) -> Any:
     """Return a MongoDB database handle for weather report storage.
 
     If *db* is already provided (e.g. for testing), return it as-is.
-    Otherwise connect via ``AFL_MONGODB_URL`` / ``AFL_EXAMPLES_DATABASE``.
+    Otherwise connect via ``FW_MONGODB_URL`` / ``FW_EXAMPLES_DATABASE``.
 
     Example data is stored in a separate database (default ``afl_examples``)
     so that ``db.dropDatabase()`` on the FFL runtime database does not
@@ -65,12 +65,12 @@ def get_weather_db(db: Any = None) -> Any:
         return db
     from pymongo import MongoClient
 
-    url = os.environ.get("AFL_MONGODB_URL")
+    url = os.environ.get("FW_MONGODB_URL")
     if not url:
         raise RuntimeError(
-            "AFL_MONGODB_URL is not set — cannot connect to MongoDB for weather reports"
+            "FW_MONGODB_URL is not set — cannot connect to MongoDB for weather reports"
         )
-    db_name = os.environ.get("AFL_EXAMPLES_DATABASE", "facetwork_examples")
+    db_name = os.environ.get("FW_EXAMPLES_DATABASE", "facetwork_examples")
     return MongoClient(url)[db_name]
 
 

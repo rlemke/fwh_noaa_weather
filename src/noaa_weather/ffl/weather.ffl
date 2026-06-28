@@ -77,7 +77,7 @@ namespace weather.types {
 
     /** Filesystem paths of the on-disk bundle produced by
       * GenerateClimateReport. Lives under
-      * ``$AFL_CACHE_ROOT/noaa-weather/climate-report/<country>/<region>/``. */
+      * ``$FW_CACHE_ROOT/noaa-weather/climate-report/<country>/<region>/``. */
     schema ClimateReportBundle {
         output_dir: String,
         report_json: String,
@@ -418,7 +418,7 @@ namespace weather.Marine {
 //
 // Wraps the `_noaa_tools.climate_report.generate_climate_report` core that the
 // `climate-report.sh` CLI also calls. Output lives at
-// $AFL_CACHE_ROOT/noaa-weather/climate-report/<country>/<region>/ and
+// $FW_CACHE_ROOT/noaa-weather/climate-report/<country>/<region>/ and
 // follows standard climate-data conventions: WMO 30-year normals, Ed
 // Hawkins warming stripes, Walter-Lieth climograph, year×month heatmap,
 // anomaly bars, OLS trend line.

@@ -180,7 +180,7 @@ def handle_render_extremes_chart(params: dict[str, Any]) -> dict[str, Any]:
                                         counts_by_type=counts_by_type, trends=trends,
                                         summary=summary)
 
-    # Write through the storage abstraction (get_storage() honors AFL_STORAGE —
+    # Write through the storage abstraction (get_storage() honors FW_STORAGE —
     # local or s3/MinIO), so the chart lands in durable storage on any backend.
     storage = get_storage()
     slug = re.sub(r"[^A-Za-z0-9]+", "_", (label or title)).strip("_") or "extremes"

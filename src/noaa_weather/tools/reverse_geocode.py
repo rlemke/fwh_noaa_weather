@@ -1,7 +1,7 @@
 """Reverse-geocode one or more lat/lon pairs via OSM Nominatim.
 
 Results are cached at
-``$AFL_CACHE_ROOT/noaa-weather/geocode/<lat_4dp>_<lon_4dp>.json``
+``$FW_CACHE_ROOT/noaa-weather/geocode/<lat_4dp>_<lon_4dp>.json``
 with a sidecar. Nominatim rate-limits anonymous use to 1 req/sec, so
 live lookups sleep between calls — cache hits don't.
 

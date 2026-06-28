@@ -1,6 +1,6 @@
 """Download the NDBC active-stations catalog.
 
-Writes two artifacts under ``$AFL_CACHE_ROOT/noaa-weather/ndbc-catalog/``:
+Writes two artifacts under ``$FW_CACHE_ROOT/noaa-weather/ndbc-catalog/``:
 
 - ``activestations.xml`` — the upstream verbatim
 - ``stations.json``      — normalized ``{station_id, name, type, owner,

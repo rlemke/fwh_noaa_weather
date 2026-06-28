@@ -242,8 +242,8 @@ def test_chart_title_prefers_station_name_but_path_keys_on_id(tmp_path):
     """The chart titles by the human name/location; the artifact path stays
     keyed on the stable station_id so its URL doesn't move."""
     import os, json, re
-    os.environ['AFL_STORAGE'] = 'local'
-    os.environ['AFL_DATA_ROOT'] = str(tmp_path)
+    os.environ['FW_STORAGE'] = 'local'
+    os.environ['FW_DATA_ROOT'] = str(tmp_path)
     from noaa_weather.handlers.qc.qc_handlers import handle_render_qc_chart
 
     summ = {"station_id": "USW00094728", "station_name": "NY CITY CENTRAL PARK",

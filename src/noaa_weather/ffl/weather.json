@@ -251,7 +251,7 @@
           "type": "SchemaDecl",
           "name": "ClimateReportBundle",
           "doc": {
-            "description": "Filesystem paths of the on-disk bundle produced by\nGenerateClimateReport. Lives under\n``$AFL_CACHE_ROOT/noaa-weather/climate-report/<country>/<region>/``.",
+            "description": "Filesystem paths of the on-disk bundle produced by\nGenerateClimateReport. Lives under\n``$FW_CACHE_ROOT/noaa-weather/climate-report/<country>/<region>/``.",
             "params": [],
             "returns": []
           },

@@ -98,15 +98,15 @@ Every tool supports:
 
 ## Cache layout
 
-All outputs live at `$AFL_CACHE_ROOT/noaa-weather/` (default: `/Volumes/afl_data/cache/noaa-weather/`):
+All outputs live at `$FW_CACHE_ROOT/noaa-weather/` (default: `/Volumes/afl_data/cache/noaa-weather/`):
 
 > **Storage backend.** The cache root resolves against a backend chosen by
-> `AFL_STORAGE` (`local` | `hdfs` | `s3`) rooted at `AFL_DATA_ROOT`. Under
-> `AFL_STORAGE=s3`, durable outputs (extreme-event charts, `BuildBuoysMap`,
+> `FW_STORAGE` (`local` | `hdfs` | `s3`) rooted at `FW_DATA_ROOT`. Under
+> `FW_STORAGE=s3`, durable outputs (extreme-event charts, `BuildBuoysMap`,
 > `warming_map`) and downloads (GHCN catalog + station CSVs, NDBC catalog +
 > stdmet, marine buoy summaries) land in shared MinIO/S3, while readers get a
 > real local file via the `localize()` read-through cache. Scratch and staging
-> always stay on local disk (`AFL_LOCAL_SCRATCH`), so `AFL_DATA_ROOT=s3://…`
+> always stay on local disk (`FW_LOCAL_SCRATCH`), so `FW_DATA_ROOT=s3://…`
 > never poisons in-flight writes. *Not yet migrated:* marine stdmet
 > enumeration over s3 and the local CLI tools; `GenerateClimateReport` still
 > needs matplotlib (absent in runners).
@@ -153,7 +153,7 @@ Each artifact has a sibling `.meta.json` sidecar recording size, SHA-256, source
     --all-under north-america/canada --include-parents \
     --start-year 1950 --end-year 2026 \
     --i-know-this-is-huge
-open "$AFL_CACHE_ROOT/noaa-weather/climate-report/index.html"
+open "$FW_CACHE_ROOT/noaa-weather/climate-report/index.html"
 ```
 
 The master index at `climate-report/index.html` auto-regenerates after every report, so each region shows up under its continent/country as soon as it lands. Preview the region set first with `--list`:
@@ -217,7 +217,7 @@ mirrors the GHCN tools:
 
 # 5. MapLibre points map with station-type legend + click popups
 ./tools/build-buoys-map.sh
-open "$AFL_CACHE_ROOT/noaa-weather/ndbc-catalog/buoys-map.html"
+open "$FW_CACHE_ROOT/noaa-weather/ndbc-catalog/buoys-map.html"
 ```
 
 Each buoy carries `met` / `currents` / `waterquality` / `dart` sensor
@@ -233,7 +233,7 @@ The real implementation lives in `_noaa_tools/`. Both the CLI tools and the FFL 
 | Module | Role |
 |--------|------|
 | `sidecar.py` | Per-entry `.meta.json` read/write, presence, per-entry locking |
-| `storage.py` | LocalStorage / HdfsStorage / **S3Storage** abstraction (`AFL_STORAGE=local\|hdfs\|s3`) + root-path derivation; `localize()` read-through cache for object-store paths; always-local scratch/staging |
+| `storage.py` | LocalStorage / HdfsStorage / **S3Storage** abstraction (`FW_STORAGE=local\|hdfs\|s3`) + root-path derivation; `localize()` read-through cache for object-store paths; always-local scratch/staging |
 | `ghcn_download.py` | GHCN catalog + per-station CSV download with sidecar cache |
 | `ghcn_parse.py` | Pure parsers for `ghcnd-stations.txt`, `ghcnd-inventory.txt`, per-station CSVs |
 | `ghcn_qc.py` | Pure Q-flag counter: re-reads the per-station CSV and tallies failed-QC observations (overall / per element / per year / per check letter) — the data the parser silently drops — plus `aggregate_region_qc` (observation-weighted region roll-up) |

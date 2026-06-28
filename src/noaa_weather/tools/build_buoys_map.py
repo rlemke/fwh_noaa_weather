@@ -3,7 +3,7 @@
 Reads ``ndbc-catalog/stations.json`` (written by
 ``download-ndbc-catalog``) and any cached per-station summaries
 (``buoy-summaries/``) and emits
-``$AFL_CACHE_ROOT/noaa-weather/ndbc-catalog/buoys-map.html``.
+``$FW_CACHE_ROOT/noaa-weather/ndbc-catalog/buoys-map.html``.
 
 Usage::
 

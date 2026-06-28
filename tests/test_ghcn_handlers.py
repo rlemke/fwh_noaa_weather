@@ -451,10 +451,10 @@ class TestSimpleLinearRegression:
 
 
 class TestReverseGeocodeNominatim:
-    """The on-disk cache lives at ``$AFL_DATA_ROOT/cache/noaa-weather/geocode/``
+    """The on-disk cache lives at ``$FW_DATA_ROOT/cache/noaa-weather/geocode/``
     with a per-entry ``.meta.json`` sidecar (see
     ``agent-spec/cache-layout.agent-spec.yaml``). Tests point
-    ``AFL_DATA_ROOT`` at a per-test tmp dir and pass ``use_mock=True``
+    ``FW_DATA_ROOT`` at a per-test tmp dir and pass ``use_mock=True``
     to force the deterministic offline code path — no network, no
     dependency on ``requests`` being installed.
     """
@@ -463,7 +463,7 @@ class TestReverseGeocodeNominatim:
         """Offline mode returns a populated hash-based result."""
         from noaa_weather.handlers.shared.ghcn_utils import reverse_geocode_nominatim as _rgn
 
-        monkeypatch.setenv("AFL_DATA_ROOT", str(tmp_path))
+        monkeypatch.setenv("FW_DATA_ROOT", str(tmp_path))
         result = _rgn(40.78, -73.97, use_mock=True)
         assert "display_name" in result
         assert "city" in result
@@ -475,7 +475,7 @@ class TestReverseGeocodeNominatim:
         """Same coordinates always produce same mock result."""
         from noaa_weather.handlers.shared.ghcn_utils import reverse_geocode_nominatim as _rgn
 
-        monkeypatch.setenv("AFL_DATA_ROOT", str(tmp_path))
+        monkeypatch.setenv("FW_DATA_ROOT", str(tmp_path))
         r1 = _rgn(40.78, -73.97, use_mock=True)
         r2 = _rgn(40.78, -73.97, use_mock=True)
         assert r1 == r2
@@ -487,7 +487,7 @@ class TestReverseGeocodeNominatim:
         without network, but the cache short-circuits it."""
         from noaa_weather.handlers.shared.ghcn_utils import reverse_geocode_nominatim as _rgn
 
-        monkeypatch.setenv("AFL_DATA_ROOT", str(tmp_path))
+        monkeypatch.setenv("FW_DATA_ROOT", str(tmp_path))
         # First call writes the cache in mock mode.
         r1 = _rgn(12.3456, 78.9012, use_mock=True)
         # Second call without use_mock — must read the cached sidecar,

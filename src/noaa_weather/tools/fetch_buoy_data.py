@@ -1,7 +1,7 @@
 """Download per-station historical stdmet for one or more NDBC buoys.
 
 Each station_id × year combination lands at
-``$AFL_CACHE_ROOT/noaa-weather/ndbc-stdmet/<station_id>/<year>.txt.gz``
+``$FW_CACHE_ROOT/noaa-weather/ndbc-stdmet/<station_id>/<year>.txt.gz``
 with a sibling ``.meta.json`` sidecar.
 
 Usage::

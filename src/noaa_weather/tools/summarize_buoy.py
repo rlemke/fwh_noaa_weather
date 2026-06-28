@@ -6,7 +6,7 @@ pressure, wind speed, wave height, plus daily counts of high-SST /
 storm days.
 
 Outputs land at
-``$AFL_CACHE_ROOT/noaa-weather/buoy-summaries/<station_id>.json`` with
+``$FW_CACHE_ROOT/noaa-weather/buoy-summaries/<station_id>.json`` with
 a sibling ``.meta.json`` sidecar.
 
 Usage::

@@ -15,7 +15,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 EXAMPLE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
-# Load .env (AFL_MONGODB_URL, AFL_EXAMPLES_DATABASE, etc.)
+# Load .env (FW_MONGODB_URL, FW_EXAMPLES_DATABASE, etc.)
 source "$REPO_ROOT/scripts/_env.sh"
 
 PYTHON="${REPO_ROOT}/.venv/bin/python3"

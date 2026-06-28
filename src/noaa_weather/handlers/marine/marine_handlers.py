@@ -248,7 +248,7 @@ def handle_summarize_buoy(params: dict[str, Any]) -> dict[str, Any]:
     # Enumerate the years actually in the cache through the storage abstraction
     # (sidecar walk), so this works whether the cache lives on local disk or in
     # s3/MinIO — a Path().iterdir() only ever sees a local directory and silently
-    # found nothing under AFL_STORAGE=s3. relative_path is "<station>/<year>.txt.gz".
+    # found nothing under FW_STORAGE=s3. relative_path is "<station>/<year>.txt.gz".
     rels = sidecar.list_relative_paths(
         "noaa-weather", ndbc_download.STDMET_CACHE_TYPE,
         under=station_id, storage=storage,

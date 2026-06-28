@@ -13,7 +13,7 @@ from noaa_weather.tools._noaa_tools import storage as st
 
 
 def test_get_storage_dispatch(monkeypatch):
-    monkeypatch.delenv("AFL_STORAGE", raising=False)
+    monkeypatch.delenv("FW_STORAGE", raising=False)
     assert isinstance(st.get_storage("local"), st.LocalStorage)
     assert st.get_storage("s3").name == "s3"
     assert isinstance(st.get_storage("s3"), st.S3Storage)
@@ -22,16 +22,16 @@ def test_get_storage_dispatch(monkeypatch):
 
 
 def test_default_backend_follows_env(monkeypatch):
-    monkeypatch.setenv("AFL_STORAGE", "s3")
+    monkeypatch.setenv("FW_STORAGE", "s3")
     assert st.default_backend() == "s3"
     assert isinstance(st.get_storage(), st.S3Storage)
 
 
 def test_data_root_s3_default(monkeypatch):
-    monkeypatch.delenv("AFL_DATA_ROOT", raising=False)
+    monkeypatch.delenv("FW_DATA_ROOT", raising=False)
     assert st.data_root("s3") == st.S3_DEFAULT_ROOT
     assert st.data_root("local") == st.LOCAL_DEFAULT_ROOT
-    monkeypatch.setenv("AFL_DATA_ROOT", "s3://my-bucket")
+    monkeypatch.setenv("FW_DATA_ROOT", "s3://my-bucket")
     assert st.data_root("s3") == "s3://my-bucket"
 
 
@@ -52,9 +52,9 @@ def test_local_round_trip(tmp_path):
 
 
 def test_local_staging_is_truly_local_even_with_s3_data_root(monkeypatch, tmp_path):
-    # AFL_DATA_ROOT=s3 must NOT poison local staging (downloads stage to disk).
-    monkeypatch.setenv("AFL_DATA_ROOT", "s3://afl-cache")
-    monkeypatch.setenv("AFL_LOCAL_SCRATCH", str(tmp_path))
+    # FW_DATA_ROOT=s3 must NOT poison local staging (downloads stage to disk).
+    monkeypatch.setenv("FW_DATA_ROOT", "s3://afl-cache")
+    monkeypatch.setenv("FW_LOCAL_SCRATCH", str(tmp_path))
     d = st.local_staging_subdir("noaa-weather/station-csv")
     assert d.startswith(str(tmp_path)) and "://" not in d
     assert st.local_scratch_root() == str(tmp_path)
@@ -65,6 +65,6 @@ def test_localize_identity_for_local():
 
 
 def test_localized_path_mapping(monkeypatch, tmp_path):
-    monkeypatch.setenv("AFL_LOCAL_SCRATCH", str(tmp_path))
+    monkeypatch.setenv("FW_LOCAL_SCRATCH", str(tmp_path))
     lp = st._localized_path("s3://afl-cache/cache/noaa-weather/station-csv/USW1.csv")
     assert lp == str(tmp_path / "localized" / "afl-cache/cache/noaa-weather/station-csv/USW1.csv")

@@ -1,6 +1,6 @@
 """Download per-station GHCN CSVs into the shared cache.
 
-Outputs land at ``$AFL_CACHE_ROOT/noaa-weather/station-csv/<station_id>.csv``
+Outputs land at ``$FW_CACHE_ROOT/noaa-weather/station-csv/<station_id>.csv``
 with a sibling ``.meta.json`` sidecar that records the inventory's
 ``first_year`` / ``last_year`` (when discovered via ``--from-catalog``).
 

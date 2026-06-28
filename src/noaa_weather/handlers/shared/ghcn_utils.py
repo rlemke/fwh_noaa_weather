@@ -10,7 +10,7 @@ It is shared verbatim by:
   package).
 
 Both entry points read and write the same on-disk cache
-(``$AFL_DATA_ROOT/cache/noaa-weather/...``) with per-entry
+(``$FW_DATA_ROOT/cache/noaa-weather/...``) with per-entry
 ``.meta.json`` sidecars — the tool and the FFL are two surfaces onto
 one cache.
 
@@ -125,18 +125,18 @@ def get_weather_db(db: Any = None) -> Any:
     """Return a MongoDB database handle for weather report storage.
 
     If *db* is provided (e.g. injected from a test), return it unchanged.
-    Otherwise connect via ``AFL_MONGODB_URL`` / ``AFL_EXAMPLES_DATABASE``.
+    Otherwise connect via ``FW_MONGODB_URL`` / ``FW_EXAMPLES_DATABASE``.
     """
     if db is not None:
         return db
     from pymongo import MongoClient
 
-    url = os.environ.get("AFL_MONGODB_URL")
+    url = os.environ.get("FW_MONGODB_URL")
     if not url:
         raise RuntimeError(
-            "AFL_MONGODB_URL is not set — cannot connect to MongoDB for weather reports"
+            "FW_MONGODB_URL is not set — cannot connect to MongoDB for weather reports"
         )
-    db_name = os.environ.get("AFL_EXAMPLES_DATABASE", "facetwork_examples")
+    db_name = os.environ.get("FW_EXAMPLES_DATABASE", "facetwork_examples")
     return MongoClient(url)[db_name]
 
 

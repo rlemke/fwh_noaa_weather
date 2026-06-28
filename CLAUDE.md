@@ -77,7 +77,7 @@ lives in the shim.
 Both the CLIs and the FFL handlers read/write the same on-disk cache:
 
 ```
-$AFL_DATA_ROOT/cache/noaa-weather/
+$FW_DATA_ROOT/cache/noaa-weather/
 ├── ghcn-catalog/                   # ghcnd-stations.txt, ghcnd-inventory.txt
 ├── ghcn-stations/                  # per-station CSVs (one per station_id)
 ├── ndbc-catalog/                   # NDBC station list
@@ -92,8 +92,8 @@ Each cached entry has a `.meta.json` sidecar describing its provenance
 
 ### Storage backends (local / hdfs / s3)
 
-`tools/_noaa_tools/storage.py` selects a backend from `AFL_STORAGE`
-(`local` | `hdfs` | `s3`) rooted at `AFL_DATA_ROOT`. The `s3` backend
+`tools/_noaa_tools/storage.py` selects a backend from `FW_STORAGE`
+(`local` | `hdfs` | `s3`) rooted at `FW_DATA_ROOT`. The `s3` backend
 (`S3Storage`) delegates to `facetwork.runtime.storage.S3StorageBackend`, so a
 fleet can share durable cache + outputs in **MinIO / S3** with no shared disk.
 
@@ -101,11 +101,11 @@ fleet can share durable cache + outputs in **MinIO / S3** with no shared disk.
   (`s3://…`, `hdfs://…`) are downloaded into `local_scratch_root()/localized`
   (size-checked) so readers always get a real local file; `S3Storage.finalize_from_local`
   warms that cache on write.
-- **Scratch is always local.** `local_scratch_root()` (`AFL_LOCAL_SCRATCH`)
-  and `local_staging_subdir` stay on local disk even when `AFL_DATA_ROOT=s3://…`
+- **Scratch is always local.** `local_scratch_root()` (`FW_LOCAL_SCRATCH`)
+  and `local_staging_subdir` stay on local disk even when `FW_DATA_ROOT=s3://…`
   — pointing the data root at an object store no longer poisons staging.
 
-Under `AFL_STORAGE=s3`, durable outputs (extreme-event charts, `BuildBuoysMap`,
+Under `FW_STORAGE=s3`, durable outputs (extreme-event charts, `BuildBuoysMap`,
 `warming_map`) and data downloads (`ghcn_download` station CSV + catalog,
 `ndbc_download` buoy catalog + stdmet, marine `SummarizeBuoy` persist) land in
 shared MinIO, while readers get a real local file via `localize`.

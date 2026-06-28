@@ -102,13 +102,13 @@ so the two surfaces share one cache and one implementation.
 | Service | Purpose |
 |---------|---------|
 | MongoDB | Facetwork registry + workflow state, plus `weather_reports` / `climate_trends` / extreme-event rollup collections |
-| MinIO / S3 (optional) | Shared durable cache + outputs under `AFL_STORAGE=s3` — lets a multi-server fleet share artifacts with no shared disk |
+| MinIO / S3 (optional) | Shared durable cache + outputs under `FW_STORAGE=s3` — lets a multi-server fleet share artifacts with no shared disk |
 
-The cache + outputs backend is chosen by `AFL_STORAGE` (`local` | `hdfs` |
-`s3`) rooted at `AFL_DATA_ROOT`. On `s3`, downloads and durable outputs land in
+The cache + outputs backend is chosen by `FW_STORAGE` (`local` | `hdfs` |
+`s3`) rooted at `FW_DATA_ROOT`. On `s3`, downloads and durable outputs land in
 shared MinIO/S3 while readers get a real local file via a `localize()`
 read-through cache; scratch/staging always stay on local disk
-(`AFL_LOCAL_SCRATCH`).
+(`FW_LOCAL_SCRATCH`).
 
 The package falls back to deterministic hash-based mocks when `requests`
 isn't installed or NOAA endpoints are unreachable, so unit tests run

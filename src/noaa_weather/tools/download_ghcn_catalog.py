@@ -2,8 +2,8 @@
 
 Outputs land at::
 
-    $AFL_CACHE_ROOT/noaa-weather/catalog/stations.txt   + .meta.json
-    $AFL_CACHE_ROOT/noaa-weather/catalog/inventory.txt  + .meta.json
+    $FW_CACHE_ROOT/noaa-weather/catalog/stations.txt   + .meta.json
+    $FW_CACHE_ROOT/noaa-weather/catalog/inventory.txt  + .meta.json
 
 Usage::
 
