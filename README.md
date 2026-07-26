@@ -17,6 +17,28 @@ declared in `pyproject.toml`. After `pip install -e .`, Facetwork's
 `scripts/start-runner --example noaa-weather` and `scripts/seed-examples`
 pick this package up automatically.
 
+## Feature specifications
+
+Per-feature specs live under [`docs/`](docs/README.md) — one document per feature,
+each grounded in the FFL docstrings, handler code, and shared tool libraries. Start
+with the flagship, [Climate Analysis & Regional Trends](docs/trends.md).
+
+| Feature | Spec |
+|---------|------|
+| Station catalog discovery (`weather.Catalog`) | [docs/catalog-discovery.md](docs/catalog-discovery.md) |
+| Station CSV ingest (`weather.Ingest`) | [docs/ingest.md](docs/ingest.md) |
+| **Climate analysis & regional trends** (`weather.Analysis`) | [docs/trends.md](docs/trends.md) |
+| Quality-control surfacing (`weather.QC`) | [docs/quality-control.md](docs/quality-control.md) |
+| Extreme-event detection (`weather.Extremes`) | [docs/extremes.md](docs/extremes.md) |
+| Marine buoys / NDBC (`weather.Marine`) | [docs/marine.md](docs/marine.md) |
+| Reverse geocoding (`weather.Geocode`) | [docs/geocode.md](docs/geocode.md) |
+| Element vocabulary (`weather.Vocab`) | [docs/vocab.md](docs/vocab.md) |
+| Regional climate report bundle (`weather.Report`) | [docs/climate-report.md](docs/climate-report.md) |
+| Workflows & fan-out composition (`weather.workflows`, `weather.Cache`) | [docs/workflows.md](docs/workflows.md) |
+| Storage, cache & sidecars (cross-cutting) | [docs/storage-and-cache.md](docs/storage-and-cache.md) |
+
+See [`docs/README.md`](docs/README.md) for the full grouped index.
+
 ## Install
 
 ```bash
