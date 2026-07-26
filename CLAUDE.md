@@ -4,14 +4,14 @@ This repository is a **standalone Facetwork example package**. The Facetwork
 platform (workflow compiler + runtime) lives at
 `/Users/ralph_lemke/facetwork`; this repo only contains the NOAA-specific
 FFL, handlers, and tools. The two are wired together via the
-`facetwork.examples` entry point in `pyproject.toml`.
+`facetwork.domains` entry point in `pyproject.toml`.
 
 ## Quick orientation
 
 ```
 fwh_noaa_weather/
-├── pyproject.toml                  # declares the facetwork.examples entry point
-├── src/noaa_weather/__init__.py    # exports `example: ExamplePackage`
+├── pyproject.toml                  # declares the facetwork.domains entry point
+├── src/noaa_weather/__init__.py    # exports `domain: DomainPackage`
 ├── src/noaa_weather/handlers/      # event-facet implementations (one subpackage per domain)
 ├── src/noaa_weather/ffl/           # top-level FFL workflows
 ├── src/noaa_weather/tools/         # CLI utilities + _noaa_tools/ (the real implementation)
@@ -26,8 +26,8 @@ fwh_noaa_weather/
 pip install -e .
 
 # From a Facetwork checkout:
-scripts/seed-examples --include noaa-weather
-scripts/start-runner --example noaa-weather -- --log-format text
+fw ffl seed --include noaa-weather
+fw runner start --domain noaa-weather -- --log-format text
 
 # Run as a standalone agent (skip the registry runner path):
 PYTHONPATH=src python agent.py
@@ -165,7 +165,7 @@ DetectStationExtremes → AggregateRegionExtremes), and the visualizing variants
 5. If the handler does anything non-trivial, factor that work into a
    `tools/_noaa_tools/<name>.py` module, add a CLI wrapper under `tools/`, and
    re-export from `handlers/shared/ghcn_utils.py`.
-6. Re-run `scripts/seed-examples --include noaa-weather` so the new flow
+6. Re-run `fw ffl seed --include noaa-weather` so the new flow
    shows up in the dashboard.
 
 ## Code review checklist

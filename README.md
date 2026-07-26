@@ -12,9 +12,9 @@ providing FFL workflows and handlers for working with NOAA climate data:
 - **Extreme events** — detect heat waves, cold snaps, wet/dry spells and heavy rain/snow days per station or region, with per-decade trends and dependency-free SVG/HTML charts
 - **Quality control** — surface how much of a station's GHCN record NOAA flagged as failing QC (overall %, per element/year/check), roll it up to an observation-weighted region rate with a worst-stations ranking, and render it as a dependency-free SVG/HTML chart — so a reader can judge data credibility before trusting a trend
 
-Discovered by the Facetwork runner via the `facetwork.examples` entry point
+Discovered by the Facetwork runner via the `facetwork.domains` entry point
 declared in `pyproject.toml`. After `pip install -e .`, Facetwork's
-`scripts/start-runner --example noaa-weather` and `scripts/seed-examples`
+`fw runner start --domain noaa-weather` and `fw ffl seed`
 pick this package up automatically.
 
 ## Feature specifications
@@ -47,7 +47,7 @@ cd ~/fw_handlers/fwh_noaa_weather
 pip install -e .
 ```
 
-This registers the package under the `facetwork.examples` entry-point group,
+This registers the package under the `facetwork.domains` entry-point group,
 making it discoverable by any Facetwork installation in the same environment.
 
 ## Run from a Facetwork checkout
@@ -59,8 +59,8 @@ Facetwork (`pip install -e ~/fw_handlers/fwh_noaa_weather`).
 ### Cold start: dashboard + runner together
 
 ```bash
-scripts/seed-examples --include noaa-weather           # one-time, seeds FFL
-scripts/start-runner --example noaa-weather -- --log-format text
+fw ffl seed --include noaa-weather           # one-time, seeds FFL
+fw runner start --domain noaa-weather -- --log-format text
 ```
 
 This brings up the dashboard on `:8080` and a runner that polls for
@@ -72,7 +72,7 @@ If the Facetwork dashboard is already up and you just want another runner
 attached to it (after pulling new noaa-weather code, or to scale out):
 
 ```bash
-scripts/start-runner --example noaa-weather --no-dashboard -- --log-format text
+fw runner start --domain noaa-weather --no-dashboard -- --log-format text
 ```
 
 ## Run standalone
@@ -85,7 +85,7 @@ PYTHONPATH=src python agent.py
 
 ```
 fwh_noaa_weather/
-├── pyproject.toml                  # facetwork.examples entry point
+├── pyproject.toml                  # facetwork.domains entry point
 ├── README.md
 ├── CLAUDE.md                       # guidance for Claude Code in this repo
 ├── USER_GUIDE.md                   # human-facing walkthrough
@@ -95,7 +95,7 @@ fwh_noaa_weather/
 ├── tests/                          # repo-level integration tests
 ├── scripts/                        # operational scripts (seed-climate-data, …)
 └── src/noaa_weather/
-    ├── __init__.py                 # exports `example: ExamplePackage`
+    ├── __init__.py                 # exports `domain: DomainPackage`
     ├── handlers/                   # event-facet subpackages (one per domain)
     │   ├── analysis/
     │   ├── catalog/

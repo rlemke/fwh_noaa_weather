@@ -9,8 +9,8 @@ point declared in ``pyproject.toml``::
     noaa-weather = "noaa_weather:domain"
 
 Once ``pip install -e .`` has been run from this repository, Facetwork's
-``scripts/start-runner --example noaa-weather`` and
-``scripts/seed-examples`` will pick this package up automatically — no
+``fw runner start --domain noaa-weather`` and
+``fw ffl seed`` will pick this package up automatically — no
 edits to the Facetwork repository required.
 """
 
