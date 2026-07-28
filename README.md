@@ -17,6 +17,56 @@ declared in `pyproject.toml`. After `pip install -e .`, Facetwork's
 `fw runner start --domain noaa-weather` and `fw ffl seed`
 pick this package up automatically.
 
+## FFL at a glance
+
+The domain is driven from [FFL](https://github.com/rlemke/facetwork/blob/main/docs/reference/language/grammar.md),
+Facetwork's workflow language. A step is `name = Facet(args)`; `andThen foreach`
+fans the per-station work out across the fleet, and a step placed after the block
+fans it back in:
+
+```ffl
+namespace my.weather {
+
+    use weather.Catalog
+    use weather.QC
+
+    /** Per-station QC in parallel, then one region-level rollup. */
+    workflow RegionQCRollup(country: String = "US", state: String = "NY", max_stations: Int = 5,
+        start_year: Int = 1950, end_year: Int = 2026) => (status: String, narrative: String) andThen {
+
+        discovery = weather.Catalog.DiscoverStations(
+            country = $.country, state = $.state, max_stations = $.max_stations) andThen foreach station in $.stations {
+
+            qc = weather.QC.SummarizeQualityFlags(
+                station_id = $.station.station_id,
+                state = $$.state,
+                start_year = $$.start_year,
+                end_year = $$.end_year)
+
+            yield RegionQCRollup(status = "station_done", narrative = "")
+        }
+
+        region = weather.QC.AggregateRegionQC(
+            country = $.country, state = $.state,
+            start_year = $.start_year, end_year = $.end_year,
+            station_count = discovery.station_count)
+
+        yield RegionQCRollup(status = "completed", narrative = region.narrative)
+    }
+}
+```
+
+```bash
+fw ffl run --primary my.ffl --library src/noaa_weather/ffl/weather.ffl \
+  --workflow my.weather.RegionQCRollup --inputs '{"state": "NY"}'
+```
+
+📖 **[docs/ffl-examples.md](docs/ffl-examples.md)** — the full example gallery:
+fan-out/fan-in, Json loop variables, tuning the extreme-event thresholds, chaining
+charts onto aggregates, `catch` per station, `when` guards, and overriding this
+domain's own `RetryPolicy`/`RateLimit` mixins. Every snippet there is
+compile-checked.
+
 ## Feature specifications
 
 Per-feature specs live under [`docs/`](docs/README.md) — one document per feature,

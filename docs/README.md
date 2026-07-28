@@ -55,6 +55,7 @@ reuse.
 | Spec | What it covers |
 |------|----------------|
 | [storage-and-cache.md](storage-and-cache.md) | The `local`/`hdfs`/`s3` storage backends, `FW_STORAGE=s3` shared MinIO, the sidecar cache protocol, `localize` read-through cache, and the always-local scratch rule. |
+| [ffl-examples.md](ffl-examples.md) | **Usage patterns.** A gallery of complete, compile-checked FFL examples over these facets — discover→`foreach`→aggregate, Json loop variables, threshold tuning, `catch` per station, `when` guards, custom-mixin overrides. |
 
 ---
 

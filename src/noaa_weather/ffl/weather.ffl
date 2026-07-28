@@ -510,8 +510,8 @@ namespace weather.workflows {
       * stations drag it down?". DiscoverStations -> foreach SummarizeQualityFlags
       * -> AggregateRegionQC. Supply country + state. */
     workflow SummarizeRegionQuality(country: String = "US", state: String = "NY", max_stations: Int = 5, start_year: Int = 1944, end_year: Int = 2026) => (status: String, narrative: String) andThen {
-        discovery = DiscoverStations(country = $.country, state = $.state, max_stations = $.max_stations) andThen foreach station in discovery.stations {
-            qc = SummarizeQualityFlags(station_id = $.station.station_id, station_name = $.station.name, state = $.state, start_year = $.start_year, end_year = $.end_year) catch {
+        discovery = DiscoverStations(country = $.country, state = $.state, max_stations = $.max_stations) andThen foreach station in $.stations {
+            qc = SummarizeQualityFlags(station_id = $.station.station_id, station_name = $.station.name, state = $.state, start_year = $$.start_year, end_year = $$.end_year) catch {
                 yield SummarizeRegionQuality(status = "partial_failure", narrative = "")
             }
         }
@@ -537,8 +537,8 @@ namespace weather.workflows {
       * RenderQCChart. Supply country + state; returns the region narrative + the
       * path to a chart showing each element's flagged % and the worst stations. */
     workflow VisualizeRegionQuality(country: String = "US", state: String = "NY", max_stations: Int = 5, start_year: Int = 1944, end_year: Int = 2026) => (status: String, narrative: String, html_path: String) andThen {
-        discovery = DiscoverStations(country = $.country, state = $.state, max_stations = $.max_stations) andThen foreach station in discovery.stations {
-            qc = SummarizeQualityFlags(station_id = $.station.station_id, station_name = $.station.name, state = $.state, start_year = $.start_year, end_year = $.end_year) catch {
+        discovery = DiscoverStations(country = $.country, state = $.state, max_stations = $.max_stations) andThen foreach station in $.stations {
+            qc = SummarizeQualityFlags(station_id = $.station.station_id, station_name = $.station.name, state = $.state, start_year = $$.start_year, end_year = $$.end_year) catch {
                 yield VisualizeRegionQuality(status = "partial_failure", narrative = "", html_path = "")
             }
         }
@@ -594,8 +594,8 @@ namespace weather.workflows {
         dry_spell_min_days: Int = 21,
         heavy_snow_mm: Double = 100.0
     ) => (status: String, narrative: String) andThen {
-        discovery = DiscoverStations(country = $.country, state = $.state, max_stations = $.max_stations) andThen foreach station in discovery.stations {
-            events = DetectStationExtremes(station_id = $.station.station_id, station_name = $.station.name, state = $.state, start_year = $.start_year, end_year = $.end_year, heat_wave_tmax_c = $.heat_wave_tmax_c, heat_wave_min_days = $.heat_wave_min_days, cold_snap_tmin_c = $.cold_snap_tmin_c, cold_snap_min_days = $.cold_snap_min_days, heavy_rain_mm = $.heavy_rain_mm, wet_day_mm = $.wet_day_mm, wet_spell_min_days = $.wet_spell_min_days, dry_spell_min_days = $.dry_spell_min_days, heavy_snow_mm = $.heavy_snow_mm) catch {
+        discovery = DiscoverStations(country = $.country, state = $.state, max_stations = $.max_stations) andThen foreach station in $.stations {
+            events = DetectStationExtremes(station_id = $.station.station_id, station_name = $.station.name, state = $.state, start_year = $$.start_year, end_year = $$.end_year, heat_wave_tmax_c = $$.heat_wave_tmax_c, heat_wave_min_days = $$.heat_wave_min_days, cold_snap_tmin_c = $$.cold_snap_tmin_c, cold_snap_min_days = $$.cold_snap_min_days, heavy_rain_mm = $$.heavy_rain_mm, wet_day_mm = $$.wet_day_mm, wet_spell_min_days = $$.wet_spell_min_days, dry_spell_min_days = $$.dry_spell_min_days, heavy_snow_mm = $$.heavy_snow_mm) catch {
                 yield DetectRegionExtremes(status = "partial_failure", narrative = "")
             }
         }
@@ -631,8 +631,8 @@ namespace weather.workflows {
         start_year: Int = 1944,
         end_year: Int = 2026
     ) => (status: String, narrative: String, html_path: String) andThen {
-        discovery = DiscoverStations(country = $.country, state = $.state, max_stations = $.max_stations) andThen foreach station in discovery.stations {
-            events = DetectStationExtremes(station_id = $.station.station_id, station_name = $.station.name, state = $.state, start_year = $.start_year, end_year = $.end_year) catch {
+        discovery = DiscoverStations(country = $.country, state = $.state, max_stations = $.max_stations) andThen foreach station in $.stations {
+            events = DetectStationExtremes(station_id = $.station.station_id, station_name = $.station.name, state = $.state, start_year = $$.start_year, end_year = $$.end_year) catch {
                 yield VisualizeRegionExtremes(status = "partial_failure", narrative = "", html_path = "")
             }
         }
@@ -644,11 +644,11 @@ namespace weather.workflows {
     /** Analyze climate trends for a state: discover stations, analyze each, compute trend.
       * DiscoverStations -> foreach station -> (FetchStationData, AnalyzeStationClimate, ReverseGeocode) -> ComputeRegionTrend. */
     workflow AnalyzeStateTrends(country: String = "US", state: String = "NY", max_stations: Int = 5, start_year: Int = 1944, end_year: Int = 2026) => (status: String, narrative: String) andThen {
-        discovery = DiscoverStations(country = $.country, state = $.state, max_stations = $.max_stations) andThen foreach station in discovery.stations {
-            fetch = FetchStationData(station_id = $.station.station_id, start_year = $.start_year, end_year = $.end_year) catch {
+        discovery = DiscoverStations(country = $.country, state = $.state, max_stations = $.max_stations) andThen foreach station in $.stations {
+            fetch = FetchStationData(station_id = $.station.station_id, start_year = $$.start_year, end_year = $$.end_year) catch {
                 yield AnalyzeStateTrends(status = "partial_failure", narrative = "")
             }
-            climate = AnalyzeStationClimate(station_id = $.station.station_id, station_name = $.station.name, lat = $.station.lat, lon = $.station.lon, start_year = $.start_year, end_year = $.end_year, state = $.state) catch {
+            climate = AnalyzeStationClimate(station_id = $.station.station_id, station_name = $.station.name, lat = $.station.lat, lon = $.station.lon, start_year = $$.start_year, end_year = $$.end_year, state = $.state) catch {
                 yield AnalyzeStateTrends(status = "partial_failure", narrative = "")
             }
             geo = ReverseGeocode(lat = $.station.lat, lon = $.station.lon)
@@ -768,11 +768,11 @@ namespace weather.workflows {
             require_fields = $.require_fields,
             max_stations = $.max_stations,
             use_mock = $.use_mock
-        ) andThen foreach station in discovery.stations {
+        ) andThen foreach station in $.stations {
             fetch = FetchBuoyData(
                 station_id = $.station.station_id,
-                start_year = $.start_year,
-                end_year = $.end_year,
+                start_year = $$.start_year,
+                end_year = $$.end_year,
                 use_mock = $.use_mock
             ) catch {
                 yield AnalyzeBuoyRegion(
@@ -783,8 +783,8 @@ namespace weather.workflows {
             }
             summary = SummarizeBuoy(
                 station_id = $.station.station_id,
-                start_year = $.start_year,
-                end_year = $.end_year
+                start_year = $$.start_year,
+                end_year = $$.end_year
             ) catch {
                 yield AnalyzeBuoyRegion(
                     status = "partial",
@@ -796,9 +796,12 @@ namespace weather.workflows {
         map = BuildBuoysMap(
             dependency_signal = discovery.station_count
         ) catch {
+            // inside a catch block `$` is the map step, so the sibling
+            // `discovery` step is out of scope here — report 0 like the
+            // per-station catches above.
             yield AnalyzeBuoyRegion(
                 status = "map_failed",
-                station_count = discovery.station_count,
+                station_count = 0,
                 html_path = ""
             )
         }
@@ -838,23 +841,23 @@ namespace weather.workflows {
         list = ListRegionsUnder(
             prefix = $.prefix,
             include_parents = $.include_parents
-        ) andThen foreach region in list.regions {
+        ) andThen foreach region in $.regions {
             report = GenerateClimateReport(
                 country = "",
                 region = $.region,
-                start_year = $.start_year,
-                end_year = $.end_year,
-                baseline_start = $.baseline_start,
-                baseline_end = $.baseline_end,
-                min_years = $.min_years,
-                max_stations = $.max_stations
+                start_year = $$.start_year,
+                end_year = $$.end_year,
+                baseline_start = $$.baseline_start,
+                baseline_end = $$.baseline_end,
+                min_years = $$.min_years,
+                max_stations = $$.max_stations
             ) catch {
                 // Region without matching stations / over the guard
                 // shouldn't stop the batch. The per-region logs still
                 // surface the reason.
                 yield GenerateRegionGroupReport(
                     status = "partial",
-                    region_count = list.region_count
+                    region_count = $$.region_count
                 )
             }
         }
@@ -949,8 +952,8 @@ namespace weather.Cache {
     /** Cache GHCN-Daily data for one state: discover stations, download each station's CSV.
       * One FetchStationData per station (all years in one CSV). */
     workflow CacheStateData(country: String = "US", state: String, max_stations: Int = 5, start_year: Int = 1944, end_year: Int = 2026) => (status: String = "completed") andThen {
-        discovery = DiscoverStations(country = $.country, state = $.state, max_stations = $.max_stations) andThen foreach station in discovery.stations {
-            cache = FetchStationData(station_id = $.station.station_id, start_year = $.start_year, end_year = $.end_year) catch {
+        discovery = DiscoverStations(country = $.country, state = $.state, max_stations = $.max_stations) andThen foreach station in $.stations {
+            cache = FetchStationData(station_id = $.station.station_id, start_year = $$.start_year, end_year = $$.end_year) catch {
                 yield CacheStateData(status = "partial")
             }
         }
