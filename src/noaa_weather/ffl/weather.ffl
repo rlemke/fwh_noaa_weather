@@ -793,9 +793,7 @@ namespace weather.workflows {
                 )
             }
         }
-        map = BuildBuoysMap(
-            dependency_signal = discovery.station_count
-        ) catch {
+        map = BuildBuoysMap() after discovery catch {
             // inside a catch block `$` is the map step, so the sibling
             // `discovery` step is out of scope here — report 0 like the
             // per-station catches above.
