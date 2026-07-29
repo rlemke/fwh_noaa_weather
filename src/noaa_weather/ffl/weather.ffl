@@ -407,9 +407,7 @@ namespace weather.Marine {
     /** Render the MapLibre buoy points map from the cached catalog
       * (and any per-station summaries). Uses CARTO Voyager basemap;
       * colour-codes circles by station type. */
-    event facet BuildBuoysMap(
-        dependency_signal: Int = 0
-    ) => (html_path: String, station_count: Int) with Effect(kind = "io") with Cost(tier = "cheap")
+    event facet BuildBuoysMap() => (html_path: String, station_count: Int) with Effect(kind = "io") with Cost(tier = "cheap")
 }
 
 // ---------------------------------------------------------------------------
