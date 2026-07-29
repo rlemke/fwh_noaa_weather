@@ -46,7 +46,7 @@ Data shape: `activestations.xml → stations.json → filtered buoys → per-yea
 
 `AnalyzeBuoyRegion` fans out: `DownloadNdbcCatalog` → `DiscoverBuoys` → `andThen
 foreach station` → `FetchBuoyData` + `SummarizeBuoy` in parallel → `BuildBuoysMap`
-(gated by `discovery.station_count` via `BuildBuoysMap(dependency_signal=…)`).
+(gated by `discovery.station_count` via `BuildBuoysMap()`).
 Per-station failures are caught so one bad buoy doesn't poison the batch.
 
 ## Data & fields

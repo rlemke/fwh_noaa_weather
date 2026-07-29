@@ -151,7 +151,9 @@ namespace my.weather {
 ```
 
 `region` references `discovery.station_count`, which is what sequences it after the
-fan-out. That is the `dependency_signal` idiom under another name.
+fan-out. Because a value genuinely flows here, the reference alone is enough — no
+`after` clause is needed (and one would be flagged `AFTER_REDUNDANT`). Reach for
+`after` only when nothing flows and the link is through a cache or object store.
 
 ## 5. Tune the extreme-event thresholds
 
