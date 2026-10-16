@@ -328,7 +328,7 @@ def _render_html(geojson: dict[str, Any]) -> str:
           'https://cartodb-basemaps-c.global.ssl.fastly.net/rastertiles/voyager/{{z}}/{{x}}/{{y}}.png',
           'https://cartodb-basemaps-d.global.ssl.fastly.net/rastertiles/voyager/{{z}}/{{x}}/{{y}}.png'
         ];
-        const BASEMAP_ATTRIB = '\\u00a9 <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> contributors \\u00a9 <a href=\"https://carto.com/attributions\">CARTO</a>';
+        const BASEMAP_ATTRIB = '\\u00a9 <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> contributors';
 
         const map = new maplibregl.Map({{
           container: 'map',
