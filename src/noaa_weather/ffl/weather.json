@@ -1218,7 +1218,7 @@
           "type": "EventFacetDecl",
           "name": "BuildBuoysMap",
           "doc": {
-            "description": "Render the MapLibre buoy points map from the cached catalog\n(and any per-station summaries). Uses CARTO Voyager basemap;\ncolour-codes circles by station type.",
+            "description": "Render the MapLibre buoy points map from the cached catalog\n(and any per-station summaries). Uses OpenStreetMap basemap;\ncolour-codes circles by station type.",
             "params": [],
             "returns": []
           },

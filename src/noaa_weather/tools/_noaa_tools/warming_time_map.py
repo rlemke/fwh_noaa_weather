@@ -409,10 +409,7 @@ def _render_slider_map(
         const YEAR_MAX = {year_max};
 
         const BASEMAP_TILES = [
-          'https://cartodb-basemaps-a.global.ssl.fastly.net/rastertiles/voyager/{{z}}/{{x}}/{{y}}.png',
-          'https://cartodb-basemaps-b.global.ssl.fastly.net/rastertiles/voyager/{{z}}/{{x}}/{{y}}.png',
-          'https://cartodb-basemaps-c.global.ssl.fastly.net/rastertiles/voyager/{{z}}/{{x}}/{{y}}.png',
-          'https://cartodb-basemaps-d.global.ssl.fastly.net/rastertiles/voyager/{{z}}/{{x}}/{{y}}.png'
+          'https://tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png'
         ];
         const BASEMAP_ATTRIB =
           '\\u00a9 <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> contributors';

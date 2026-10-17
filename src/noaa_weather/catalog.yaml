@@ -486,7 +486,7 @@ facets:
     namespace: weather.Marine
     purpose: >-
       Render the MapLibre buoy points map from the cached catalog + per-station
-      summaries (CARTO Voyager basemap, type-coloured circles).
+      summaries (OpenStreetMap basemap, type-coloured circles).
     signature: "BuildBuoysMap(dependency_signal: Int = 0) => (html_path: String, station_count: Int)"
     effect: io
     cost: cheap
