@@ -67,7 +67,7 @@ Per-station failures are caught so one bad buoy doesn't poison the batch.
 - **`requests`** (pip, optional) — catalog + stdmet HTTP downloads; `ndbc_mocks`
   provides opt-in offline data (`use_mock=True`).
 - **`gzip`** (stdlib) — stdmet files are gzipped.
-- The buoys map is **self-contained MapLibre HTML** (CARTO Voyager basemap) written
+- The buoys map is **self-contained MapLibre HTML** (keyless OpenStreetMap basemap) written
   as raw text — no folium/shapely required for this path.
 
 ## Facets & workflows

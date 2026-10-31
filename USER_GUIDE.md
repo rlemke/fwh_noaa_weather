@@ -198,14 +198,14 @@ runner.
 ### 1. Seed and start the runner
 
 ```bash
-# From repo root
+# From the facetwork checkout
 source .venv/bin/activate
 
 # Seed the NOAA weather workflows into MongoDB
-scripts/publish src/noaa_weather/ffl/weather.ffl
+fw ffl seed --include noaa-weather
 
 # Register handlers and start runner + dashboard
-scripts/start-runner --example noaa-weather -- --log-format text
+fw runner start --domain noaa-weather -- --log-format text
 ```
 
 ### 2. Submit a workflow
